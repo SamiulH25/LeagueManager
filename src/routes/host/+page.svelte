@@ -5,6 +5,7 @@
   import TimingRow from "$lib/components/racing/TimingRow.svelte";
   import TelemetryTile from "$lib/components/racing/TelemetryTile.svelte";
   import LaunchPanel from "$lib/components/host/LaunchPanel.svelte";
+  import LeagueSwitcher from "$lib/components/host/LeagueSwitcher.svelte";
   import ResultsPanel from "$lib/components/host/ResultsPanel.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
@@ -50,9 +51,12 @@
         {store.state?.session?.personaname?.toUpperCase() ?? "CHIEF"}
       </h1>
     </div>
-    <div class="flex items-center gap-2">
-      <span class="status-led status-led--idle"></span>
-      <span class="font-label text-[0.6rem] text-[var(--color-muted)]">Session control</span>
+    <div class="flex flex-wrap items-center gap-4">
+      <LeagueSwitcher />
+      <div class="flex items-center gap-2">
+        <span class="status-led status-led--idle"></span>
+        <span class="font-label text-[0.6rem] text-[var(--color-muted)]">Session control</span>
+      </div>
     </div>
   </div>
 {/snippet}

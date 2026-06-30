@@ -502,13 +502,13 @@ REST + optional WebSocket for live updates.
 
 ### Phase 4 — League management polish (2 weeks)
 
-- [ ] Steam invite flow (host send → driver accept/decline)
-- [ ] Multi-league switcher for host
-- [ ] Steam `GetPlayerSummaries` batch refresh for rosters
-- [ ] Multi-round championships
-- [ ] Bot / AI entry list slots
-- [ ] Mod download URLs in server details (CM missing content)
-- [ ] Export results / standings
+- [x] Steam invite flow (host send → driver accept/decline)
+- [x] Multi-league switcher for host
+- [x] Steam `GetPlayerSummaries` batch refresh for rosters
+- [x] Multi-round championships
+- [x] Bot / AI entry list slots
+- [x] Mod download URLs in server details (CM missing content)
+- [x] Export results / standings
 
 **Exit criteria:** Host can run a multi-round league with a small grid including bots.
 

@@ -24,6 +24,8 @@
   let qualifyMinutes = $state("15");
   let raceMinutes = $state("20");
   let maxClients = $state("16");
+  let aiSlots = $state("0");
+  let modUrls = $state("");
 
   let pollTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -60,7 +62,11 @@
       qualifyMinutes: Number(qualifyMinutes) || 15,
       raceMinutes: Number(raceMinutes) || 20,
       maxClients: Number(maxClients) || 16,
-      aiSlots: 0,
+      aiSlots: Number(aiSlots) || 0,
+      modUrls: modUrls
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean),
     };
   }
 
@@ -197,6 +203,19 @@
         </div>
       </div>
       <Input bind:value={maxClients} type="number" placeholder="Max clients" mono />
+      <div>
+        <p class="mb-1 font-label text-[0.55rem] text-[var(--color-dim)]">AI bot slots</p>
+        <Input bind:value={aiSlots} type="number" mono />
+      </div>
+      <div>
+        <p class="mb-1 font-label text-[0.55rem] text-[var(--color-dim)]">Mod download URLs (one per line)</p>
+        <textarea
+          bind:value={modUrls}
+          placeholder="https://…"
+          rows="2"
+          class="w-full rounded-md border border-[var(--color-line)] bg-[var(--color-asphalt)] px-3 py-2 font-mono text-xs text-white placeholder:text-[var(--color-dim)] outline-none focus:border-[var(--color-red)]"
+        ></textarea>
+      </div>
 
       {#if error}
         <p class="text-xs text-[var(--color-red)]">{error}</p>

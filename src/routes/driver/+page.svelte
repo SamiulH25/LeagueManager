@@ -39,9 +39,23 @@
     }
   }
 
-  onMount(async () => {
+  async function loadInvites() {
+    const link = loadPitLink();
+    if (link.host.trim()) {
+      try {
+        invites = await api.fetchRemoteInvites(link.host, link.port);
+        return;
+      } catch {
+        invites = [];
+        return;
+      }
+    }
     invites = await api.listMyInvites();
+  }
+
+  onMount(async () => {
     pitLink = loadPitLink();
+    await loadInvites();
     await refreshEvent();
     pollTimer = setInterval(refreshEvent, 5000);
   });
@@ -60,6 +74,20 @@
     } finally {
       joining = false;
     }
+  }
+
+  async function acceptInvite(inviteId: number) {
+    const link = loadPitLink();
+    if (!link.host.trim()) return;
+    await api.acceptRemoteInvite(link.host, link.port, inviteId);
+    await loadInvites();
+  }
+
+  async function declineInvite(inviteId: number) {
+    const link = loadPitLink();
+    if (!link.host.trim()) return;
+    await api.declineRemoteInvite(link.host, link.port, inviteId);
+    await loadInvites();
   }
 
   async function logout() {
@@ -193,8 +221,8 @@
                     </p>
                   </div>
                   <div class="flex shrink-0 gap-2">
-                    <Button variant="ghost" size="sm">Pass</Button>
-                    <Button variant="primary" size="sm">Accept</Button>
+                    <Button variant="ghost" size="sm" onclick={() => declineInvite(invite.id)}>Pass</Button>
+                    <Button variant="primary" size="sm" onclick={() => acceptInvite(invite.id)}>Accept</Button>
                   </div>
                 </li>
               {/each}

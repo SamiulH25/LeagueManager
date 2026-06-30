@@ -12,6 +12,10 @@ import type {
   RaceLaunchConfig,
   ResultsFeed,
   ImportResult,
+  ActiveLeague,
+  LeagueRoster,
+  PendingLeagueInvite,
+  ChampionshipRound,
   ServerStatus,
   StandingsResponse,
 } from "./types";
@@ -50,4 +54,25 @@ export const api = {
     invoke<ImportResult>("import_results_json", { json, fileName }),
   dismissResultsWarning: (warningId: number) =>
     invoke<void>("dismiss_results_warning", { warningId }),
+  getActiveLeague: () => invoke<ActiveLeague>("get_active_league"),
+  setActiveLeague: (leagueId: number) =>
+    invoke<ActiveLeague>("set_active_league", { leagueId }),
+  sendDriverInvite: (leagueId: number, steamInput: string) =>
+    invoke<PendingLeagueInvite>("send_driver_invite", { leagueId, steamInput }),
+  listLeagueRoster: (leagueId: number) =>
+    invoke<LeagueRoster>("list_league_roster", { leagueId }),
+  refreshRosterAvatars: (leagueId: number) =>
+    invoke<number>("refresh_roster_avatars", { leagueId }),
+  revokeDriverInvite: (inviteId: number) =>
+    invoke<void>("revoke_driver_invite", { inviteId }),
+  fetchRemoteInvites: (host: string, port: number) =>
+    invoke<LeagueInvite[]>("fetch_remote_invites", { host, port }),
+  acceptRemoteInvite: (host: string, port: number, inviteId: number) =>
+    invoke<void>("accept_remote_invite", { host, port, inviteId }),
+  declineRemoteInvite: (host: string, port: number, inviteId: number) =>
+    invoke<void>("decline_remote_invite", { host, port, inviteId }),
+  listChampionshipRounds: (leagueId?: number) =>
+    invoke<ChampionshipRound[]>("list_championship_rounds", { leagueId: leagueId ?? null }),
+  exportStandingsCsv: (championshipId?: number) =>
+    invoke<string>("export_standings_csv", { championshipId: championshipId ?? null }),
 };

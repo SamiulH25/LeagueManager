@@ -55,6 +55,7 @@ export interface RaceLaunchConfig {
   raceMinutes?: number;
   maxClients?: number;
   aiSlots?: number;
+  modUrls?: string[];
 }
 
 export interface ServerInfo {
@@ -155,6 +156,44 @@ export interface ResultsFeed {
   warnings: ResultsWarning[];
   recent: SessionResultSummary[];
   watcherActive: boolean;
+}
+
+export interface LeagueMember {
+  driverId: number;
+  steamId64: string;
+  personaname: string;
+  avatarUrl: string;
+  team?: string | null;
+  joinedAt: string;
+}
+
+export interface PendingLeagueInvite {
+  id: number;
+  steamId64: string;
+  personaname: string;
+  avatarUrl: string;
+  invitedAt: string;
+}
+
+export interface LeagueRoster {
+  members: LeagueMember[];
+  pendingInvites: PendingLeagueInvite[];
+}
+
+export interface ActiveLeague {
+  id: number;
+  name: string;
+}
+
+export interface ChampionshipRound {
+  id: number;
+  championshipId: number;
+  roundNumber: number;
+  name: string;
+  track: string;
+  status: string;
+  createdAt: string;
+  completedAt?: string | null;
 }
 
 export interface PitLinkConfig {

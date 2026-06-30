@@ -1,14 +1,18 @@
 use crate::db::Database;
-use crate::league_api::{fetch_current_event, fetch_health, fetch_standings, start_for_host, LeagueApiManager};
+use crate::league_api::{
+    fetch_current_event, fetch_health, fetch_invites, fetch_standings, remote_accept_invite,
+    remote_decline_invite, start_for_host, LeagueApiManager,
+};
 use crate::models::{
-    AppState, CurrentEvent, DriverProfile, HostSettings, ImportResult, LeagueApiStatus, LeagueInvite,
-    LeagueSummary, PathSuggestions, PitLinkTestResult, RaceLaunchConfig, ResultsFeed, ServerStatus,
-    StandingsResponse,
+    ActiveLeague, AppState, ChampionshipRound, CurrentEvent, DriverProfile, HostSettings,
+    ImportResult, LeagueApiStatus, LeagueInvite, LeagueRoster, LeagueSummary, PathSuggestions,
+    PitLinkTestResult, RaceLaunchConfig, ResultsFeed, ServerStatus, StandingsResponse,
 };
 use crate::results_watcher::{results_dir_for_server, ResultsWatcher};
 use crate::server::{self, ServerManager};
 use crate::steam::{
-    build_openid_login_url, fetch_player_profile, parse_query_string, verify_openid_response,
+    build_openid_login_url, fetch_player_profile, fetch_player_profiles_batch,
+    parse_query_string, resolve_steam_identifier, verify_openid_response,
 };
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, State};
@@ -419,5 +423,194 @@ pub fn dismiss_results_warning(db: State<'_, AppDb>, warning_id: i64) -> Result<
     db.0.lock()
         .map_err(|e| e.to_string())?
         .dismiss_results_warning(warning_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_active_league(db: State<'_, AppDb>) -> Result<ActiveLeague, String> {
+    db.0.lock()
+        .map_err(|e| e.to_string())?
+        .get_active_league()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_active_league(db: State<'_, AppDb>, league_id: i64) -> Result<ActiveLeague, String> {
+    let database = db.0.lock().map_err(|e| e.to_string())?;
+    database
+        .set_active_league_id(league_id)
+        .map_err(|e| e.to_string())?;
+    database.get_active_league().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn send_driver_invite(
+    db: State<'_, AppDb>,
+    league_id: i64,
+    steam_input: String,
+) -> Result<crate::models::PendingLeagueInvite, String> {
+    let host_steam_id = {
+        let database = db.0.lock().map_err(|e| e.to_string())?;
+        let state = database.get_app_state().map_err(|e| e.to_string())?;
+        state
+            .session
+            .ok_or_else(|| "sign in with steam first".to_string())?
+            .steam_id64
+    };
+
+    let steam_id64 = resolve_steam_identifier(&steam_input, steam_api_key().as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    let profile = fetch_player_profile(&steam_id64, steam_api_key().as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    db.0.lock()
+        .map_err(|e| e.to_string())?
+        .send_league_invite(league_id, &steam_id64, &host_steam_id, &profile)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_league_roster(db: State<'_, AppDb>, league_id: i64) -> Result<LeagueRoster, String> {
+    db.0.lock()
+        .map_err(|e| e.to_string())?
+        .list_league_roster(league_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn refresh_roster_avatars(
+    db: State<'_, AppDb>,
+    league_id: i64,
+) -> Result<u32, String> {
+    let steam_ids: Vec<String> = {
+        let database = db.0.lock().map_err(|e| e.to_string())?;
+        let roster = database.list_league_roster(league_id).map_err(|e| e.to_string())?;
+        roster
+            .members
+            .iter()
+            .map(|m| m.steam_id64.clone())
+            .chain(
+                roster
+                    .pending_invites
+                    .iter()
+                    .map(|i| i.steam_id64.clone()),
+            )
+            .collect()
+    };
+    let profiles = fetch_player_profiles_batch(&steam_ids, steam_api_key().as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    db.0.lock()
+        .map_err(|e| e.to_string())?
+        .refresh_league_roster_profiles(league_id, &profiles)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn revoke_driver_invite(db: State<'_, AppDb>, invite_id: i64) -> Result<(), String> {
+    let host_steam_id = {
+        let database = db.0.lock().map_err(|e| e.to_string())?;
+        let state = database.get_app_state().map_err(|e| e.to_string())?;
+        state
+            .session
+            .ok_or_else(|| "sign in with steam first".to_string())?
+            .steam_id64
+    };
+    db.0.lock()
+        .map_err(|e| e.to_string())?
+        .revoke_invite(invite_id, &host_steam_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn fetch_remote_invites(
+    db: State<'_, AppDb>,
+    host: String,
+    port: u16,
+) -> Result<Vec<LeagueInvite>, String> {
+    let steam_id = {
+        let database = db.0.lock().map_err(|e| e.to_string())?;
+        let state = database.get_app_state().map_err(|e| e.to_string())?;
+        state
+            .session
+            .ok_or_else(|| "sign in with steam first".to_string())?
+            .steam_id64
+    };
+    fetch_invites(&host, port, &steam_id).await
+}
+
+#[tauri::command]
+pub async fn accept_remote_invite(
+    db: State<'_, AppDb>,
+    host: String,
+    port: u16,
+    invite_id: i64,
+) -> Result<(), String> {
+    let steam_id = {
+        let database = db.0.lock().map_err(|e| e.to_string())?;
+        let state = database.get_app_state().map_err(|e| e.to_string())?;
+        state
+            .session
+            .ok_or_else(|| "sign in with steam first".to_string())?
+            .steam_id64
+    };
+    remote_accept_invite(&host, port, invite_id, &steam_id).await
+}
+
+#[tauri::command]
+pub async fn decline_remote_invite(
+    db: State<'_, AppDb>,
+    host: String,
+    port: u16,
+    invite_id: i64,
+) -> Result<(), String> {
+    let steam_id = {
+        let database = db.0.lock().map_err(|e| e.to_string())?;
+        let state = database.get_app_state().map_err(|e| e.to_string())?;
+        state
+            .session
+            .ok_or_else(|| "sign in with steam first".to_string())?
+            .steam_id64
+    };
+    remote_decline_invite(&host, port, invite_id, &steam_id).await
+}
+
+#[tauri::command]
+pub fn list_championship_rounds(
+    db: State<'_, AppDb>,
+    league_id: Option<i64>,
+) -> Result<Vec<ChampionshipRound>, String> {
+    let database = db.0.lock().map_err(|e| e.to_string())?;
+    let league_id = match league_id {
+        Some(id) => id,
+        None => database.get_active_league_id().map_err(|e| e.to_string())?,
+    };
+    let championship_id = database
+        .championship_id_for_league(league_id)
+        .map_err(|e| e.to_string())?;
+    database
+        .list_championship_rounds(championship_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn export_standings_csv(
+    db: State<'_, AppDb>,
+    championship_id: Option<i64>,
+) -> Result<String, String> {
+    let database = db.0.lock().map_err(|e| e.to_string())?;
+    let championship_id = match championship_id {
+        Some(id) => id,
+        None => {
+            let league_id = database.get_active_league_id().map_err(|e| e.to_string())?;
+            database
+                .championship_id_for_league(league_id)
+                .map_err(|e| e.to_string())?
+        }
+    };
+    database
+        .export_standings_csv(championship_id)
         .map_err(|e| e.to_string())
 }

@@ -410,10 +410,21 @@ fn write_configs(
     }
     fs::write(config_dir.join("cfg/entry_list.ini"), entry)?;
 
-    let extra = format!(
-        "EnableServerDetails: true\nServerDescription: \"{} — LeagueManager\"\n",
-        race.server_name
-    );
+    let extra = {
+        let mut lines = format!(
+            "EnableServerDetails: true\nServerDescription: \"{} — LeagueManager\"\n",
+            race.server_name
+        );
+        if !race.mod_urls.is_empty() {
+            lines.push_str("\n# Mod download links\n");
+            for url in &race.mod_urls {
+                if !url.trim().is_empty() {
+                    lines.push_str(&format!("- {url}\n"));
+                }
+            }
+        }
+        lines
+    };
     fs::write(config_dir.join("cfg/extra_cfg.yml"), extra)?;
 
     Ok(())

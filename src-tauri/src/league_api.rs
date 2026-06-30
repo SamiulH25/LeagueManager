@@ -1,12 +1,13 @@
 use crate::db::Database;
-use crate::models::{CurrentEvent, HealthResponse, StandingsResponse};
+use crate::models::{CurrentEvent, HealthResponse, LeagueInvite, StandingsResponse};
 use crate::server::ServerManager;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
+use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
@@ -96,7 +97,16 @@ fn build_router(state: ApiState) -> Router {
             "/api/championships/{id}/standings",
             get(championship_standings),
         )
+        .route("/api/invites/{steam_id64}", get(list_invites))
+        .route("/api/invites/{id}/accept", post(accept_invite))
+        .route("/api/invites/{id}/decline", post(decline_invite))
         .with_state(state)
+}
+
+#[derive(Debug, Deserialize)]
+struct SteamIdBody {
+    #[serde(rename = "steamId64")]
+    steam_id64: String,
 }
 
 async fn health() -> Json<HealthResponse> {
@@ -164,6 +174,40 @@ async fn championship_standings(
     Ok(Json(standings))
 }
 
+async fn list_invites(
+    State(state): State<ApiState>,
+    Path(steam_id64): Path<String>,
+) -> Result<Json<Vec<LeagueInvite>>, StatusCode> {
+    let invites = {
+        let db = state.db.lock().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        db.list_invites_for_steam(&steam_id64)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    };
+    Ok(Json(invites))
+}
+
+async fn accept_invite(
+    State(state): State<ApiState>,
+    Path(id): Path<i64>,
+    Json(body): Json<SteamIdBody>,
+) -> Result<StatusCode, StatusCode> {
+    let db = state.db.lock().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    db.accept_invite(id, &body.steam_id64)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(StatusCode::OK)
+}
+
+async fn decline_invite(
+    State(state): State<ApiState>,
+    Path(id): Path<i64>,
+    Json(body): Json<SteamIdBody>,
+) -> Result<StatusCode, StatusCode> {
+    let db = state.db.lock().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    db.decline_invite(id, &body.steam_id64)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(StatusCode::OK)
+}
+
 pub async fn fetch_health(host: &str, port: u16) -> Result<(HealthResponse, u64), String> {
     let url = format!("http://{host}:{port}/api/health");
     let client = reqwest::Client::builder()
@@ -219,6 +263,69 @@ pub async fn fetch_standings(
         return Err(format!("host returned HTTP {}", resp.status()));
     }
     resp.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn fetch_invites(host: &str, port: u16, steam_id64: &str) -> Result<Vec<LeagueInvite>, String> {
+    let url = format!("http://{host}:{port}/api/invites/{steam_id64}");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("connection failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("host returned HTTP {}", resp.status()));
+    }
+    resp.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn remote_accept_invite(
+    host: &str,
+    port: u16,
+    invite_id: i64,
+    steam_id64: &str,
+) -> Result<(), String> {
+    let url = format!("http://{host}:{port}/api/invites/{invite_id}/accept");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .post(&url)
+        .json(&serde_json::json!({ "steamId64": steam_id64 }))
+        .send()
+        .await
+        .map_err(|e| format!("connection failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("host returned HTTP {}", resp.status()));
+    }
+    Ok(())
+}
+
+pub async fn remote_decline_invite(
+    host: &str,
+    port: u16,
+    invite_id: i64,
+    steam_id64: &str,
+) -> Result<(), String> {
+    let url = format!("http://{host}:{port}/api/invites/{invite_id}/decline");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .post(&url)
+        .json(&serde_json::json!({ "steamId64": steam_id64 }))
+        .send()
+        .await
+        .map_err(|e| format!("connection failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("host returned HTTP {}", resp.status()));
+    }
+    Ok(())
 }
 
 pub fn start_for_host(

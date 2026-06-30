@@ -70,6 +70,17 @@ pub fn run() {
             commands::get_results_feed,
             commands::import_results_json,
             commands::dismiss_results_warning,
+            commands::get_active_league,
+            commands::set_active_league,
+            commands::send_driver_invite,
+            commands::list_league_roster,
+            commands::refresh_roster_avatars,
+            commands::revoke_driver_invite,
+            commands::fetch_remote_invites,
+            commands::accept_remote_invite,
+            commands::decline_remote_invite,
+            commands::list_championship_rounds,
+            commands::export_standings_csv,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

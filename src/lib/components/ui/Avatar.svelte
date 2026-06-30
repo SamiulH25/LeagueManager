@@ -3,10 +3,10 @@
     src: string;
     alt: string;
     size?: "sm" | "md" | "lg" | "xl";
-    ring?: boolean;
+    number?: number | null;
   }
 
-  let { src, alt, size = "md", ring = false }: Props = $props();
+  let { src, alt, size = "md", number = null }: Props = $props();
 
   const sizes = {
     sm: "size-8",
@@ -16,10 +16,17 @@
   };
 </script>
 
-<img
-  {src}
-  {alt}
-  class="rounded-full object-cover bg-[var(--color-carbon-elevated)] {sizes[size]} {ring
-    ? 'ring-2 ring-[var(--color-racing)] ring-offset-2 ring-offset-[var(--color-carbon)]'
-    : ''}"
-/>
+<div class="relative shrink-0">
+  <img
+    {src}
+    {alt}
+    class="rounded-sm object-cover bg-[var(--color-asphalt)] ring-1 ring-[var(--color-line)] {sizes[size]}"
+  />
+  {#if number !== null}
+    <span
+      class="absolute -bottom-1 -right-1 grid min-w-[1.25rem] place-items-center rounded-sm bg-[var(--color-red)] px-1 font-mono text-[0.6rem] font-bold text-white"
+    >
+      {number}
+    </span>
+  {/if}
+</div>

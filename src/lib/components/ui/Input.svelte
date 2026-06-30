@@ -4,6 +4,7 @@
     placeholder?: string;
     type?: string;
     class?: string;
+    mono?: boolean;
   }
 
   let {
@@ -11,6 +12,7 @@
     placeholder = "",
     type = "text",
     class: className = "",
+    mono = false,
   }: Props = $props();
 </script>
 
@@ -18,5 +20,7 @@
   {type}
   bind:value
   {placeholder}
-  class="w-full rounded-xl border border-[var(--color-carbon-border)] bg-[var(--color-carbon-elevated)] px-4 py-3 text-sm text-white placeholder:text-[var(--color-muted)] outline-none transition-colors focus:border-[color-mix(in_srgb,var(--color-racing)_50%,var(--color-carbon-border))] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--color-racing)_20%,transparent)] {className}"
+  class="w-full rounded-md border border-[var(--color-line)] bg-[var(--color-asphalt)] px-3 py-2.5 text-sm text-white placeholder:text-[var(--color-dim)] outline-none transition-colors focus:border-[var(--color-red)] focus:ring-1 focus:ring-[color-mix(in_srgb,var(--color-red)_30%,transparent)] {mono
+    ? 'font-mono'
+    : ''} {className}"
 />

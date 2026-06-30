@@ -464,11 +464,11 @@ REST + optional WebSocket for live updates.
 
 ### Phase 1 — Host server launch (2–3 weeks)
 
-- [ ] AC / server path detection wizard
-- [ ] Race wizard → generate `server_cfg.ini` + `entry_list.ini`
-- [ ] Spawn / kill AssettoServer process
-- [ ] Poll `/INFO` for live status UI
-- [ ] Public IP detection + port display
+- [x] AC / server path detection wizard
+- [x] Race wizard → generate `server_cfg.ini` + `entry_list.ini`
+- [x] Spawn / kill AssettoServer process
+- [x] Poll `/INFO` for live status UI
+- [x] Public IP detection + port display
 - [ ] Basic port-forward test (external TCP probe)
 
 **Exit criteria:** Host configures a race and friends can join via manually shared CM link.

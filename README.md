@@ -12,7 +12,32 @@ A **Windows desktop app** for **Assetto Corsa** league hosting and participation
 
 - [Node.js](https://nodejs.org/) 20+
 - [Rust](https://rustup.rs/)
-- Windows build targets (primary); Linux dev needs [Tauri prerequisites](https://tauri.app/start/prerequisites/)
+- **Windows** — primary target for release builds
+- **Linux (Nobara / Fedora)** — fine for UI dev; install build deps below
+
+#### Linux dev setup (Nobara / Fedora 43)
+
+Tauri needs **development headers**, not just the runtime libraries. If you see errors like `javascriptcoregtk-4.1 was not found` or `webkit2gtk-4.1 was not found`, install:
+
+```bash
+sudo dnf install -y \
+  webkit2gtk4.1-devel \
+  javascriptcoregtk4.1-devel \
+  libsoup3-devel \
+  gtk3-devel \
+  openssl-devel \
+  curl wget file \
+  librsvg2-devel \
+  libappindicator-gtk3-devel
+```
+
+Then retry:
+
+```bash
+npm run tauri dev
+```
+
+See also: [Tauri prerequisites](https://tauri.app/start/prerequisites/)
 
 ### Run locally
 

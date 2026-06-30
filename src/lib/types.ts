@@ -28,3 +28,51 @@ export interface LeagueInvite {
   hostPersonaname?: string | null;
   hostAvatarUrl?: string | null;
 }
+
+export interface HostSettings {
+  assettoServerPath: string;
+  acInstallPath: string;
+  httpPort: number;
+  gamePort: number;
+  adminPassword: string;
+  publicIpOverride: string;
+}
+
+export interface PathSuggestions {
+  assettoServerPath?: string | null;
+  acInstallPath?: string | null;
+}
+
+export interface RaceLaunchConfig {
+  serverName: string;
+  track: string;
+  trackConfig?: string;
+  cars: string[];
+  password?: string;
+  practiceMinutes?: number;
+  qualifyMinutes?: number;
+  raceMinutes?: number;
+  maxClients?: number;
+  aiSlots?: number;
+}
+
+export interface ServerInfo {
+  name: string;
+  track: string;
+  clients: number;
+  maxClients: number;
+  session: number;
+  timeLeft: number;
+  port: number;
+}
+
+export interface ServerStatus {
+  running: boolean;
+  publicIp?: string | null;
+  httpPort: number;
+  gamePort: number;
+  cmJoinLink?: string | null;
+  serverName?: string | null;
+  info?: ServerInfo | null;
+  error?: string | null;
+}

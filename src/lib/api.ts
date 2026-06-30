@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppState, DriverProfile, LeagueInvite, LeagueSummary } from "./types";
+import type {
+  AppState,
+  DriverProfile,
+  HostSettings,
+  LeagueInvite,
+  LeagueSummary,
+  PathSuggestions,
+  RaceLaunchConfig,
+  ServerStatus,
+} from "./types";
 
 export const api = {
   getAppState: () => invoke<AppState>("get_app_state"),
@@ -12,4 +21,13 @@ export const api = {
   createLeague: (name: string) => invoke<LeagueSummary>("create_league", { name }),
   listMyInvites: () => invoke<LeagueInvite[]>("list_my_invites"),
   getDbPath: () => invoke<string>("get_db_path"),
+  detectPaths: () => invoke<PathSuggestions>("detect_paths"),
+  getHostSettings: () => invoke<HostSettings>("get_host_settings"),
+  saveHostSettings: (settings: HostSettings) =>
+    invoke<void>("save_host_settings", { settings }),
+  startRaceServer: (config: RaceLaunchConfig) =>
+    invoke<void>("start_race_server", { config }),
+  stopRaceServer: () => invoke<void>("stop_race_server"),
+  getServerStatus: () => invoke<ServerStatus>("get_server_status"),
+  openCmJoinLink: () => invoke<string>("open_cm_join_link"),
 };

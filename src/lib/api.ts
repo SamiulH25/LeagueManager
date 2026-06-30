@@ -1,13 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppState,
+  CurrentEvent,
   DriverProfile,
   HostSettings,
+  LeagueApiStatus,
   LeagueInvite,
   LeagueSummary,
   PathSuggestions,
+  PitLinkTestResult,
   RaceLaunchConfig,
   ServerStatus,
+  StandingsResponse,
 } from "./types";
 
 export const api = {
@@ -30,4 +34,13 @@ export const api = {
   stopRaceServer: () => invoke<void>("stop_race_server"),
   getServerStatus: () => invoke<ServerStatus>("get_server_status"),
   openCmJoinLink: () => invoke<string>("open_cm_join_link"),
+  getLeagueApiStatus: () => invoke<LeagueApiStatus>("get_league_api_status"),
+  testPitLink: (host: string, port: number) =>
+    invoke<PitLinkTestResult>("test_pit_link", { host, port }),
+  fetchRemoteCurrentEvent: (host: string, port: number) =>
+    invoke<CurrentEvent>("fetch_remote_current_event", { host, port }),
+  fetchRemoteStandings: (host: string, port: number, championshipId: number) =>
+    invoke<StandingsResponse>("fetch_remote_standings", { host, port, championshipId }),
+  openRemoteCmJoinLink: (host: string, port: number) =>
+    invoke<string>("open_remote_cm_join_link", { host, port }),
 };

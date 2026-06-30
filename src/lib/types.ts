@@ -36,6 +36,7 @@ export interface HostSettings {
   gamePort: number;
   adminPassword: string;
   publicIpOverride: string;
+  syncPort: number;
 }
 
 export interface PathSuggestions {
@@ -75,4 +76,54 @@ export interface ServerStatus {
   serverName?: string | null;
   info?: ServerInfo | null;
   error?: string | null;
+}
+
+export interface HealthResponse {
+  ok: boolean;
+  version: string;
+}
+
+export interface CurrentEvent {
+  status: string;
+  serverName?: string | null;
+  track?: string | null;
+  publicIp?: string | null;
+  httpPort?: number | null;
+  gamePort?: number | null;
+  password?: string | null;
+  cmJoinLink?: string | null;
+  clients?: number | null;
+  maxClients?: number | null;
+  timeLeft?: number | null;
+}
+
+export interface StandingRow {
+  position: number;
+  driverName: string;
+  team?: string | null;
+  points: number;
+  avatarUrl?: string | null;
+}
+
+export interface StandingsResponse {
+  championshipId: number;
+  championshipName: string;
+  rows: StandingRow[];
+}
+
+export interface PitLinkTestResult {
+  connected: boolean;
+  latencyMs: number;
+  version?: string | null;
+  message: string;
+}
+
+export interface LeagueApiStatus {
+  running: boolean;
+  port: number;
+}
+
+export interface PitLinkConfig {
+  host: string;
+  port: number;
 }

@@ -2,12 +2,16 @@ mod commands;
 mod db;
 mod league_api;
 mod models;
+mod points;
+mod results;
+mod results_watcher;
 mod server;
 mod steam;
 
-use commands::{AppApi, AppDb, AppServer};
+use commands::{AppApi, AppDb, AppResultsWatcher, AppServer};
 use db::Database;
 use league_api::{start_for_host, LeagueApiManager};
+use results_watcher::ResultsWatcher;
 use server::ServerManager;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
@@ -17,12 +21,14 @@ pub fn run() {
     let database = Arc::new(Mutex::new(Database::open().expect("failed to open database")));
     let server = Arc::new(ServerManager::new());
     let api = LeagueApiManager::new();
+    let watcher = ResultsWatcher::new();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppDb(Arc::clone(&database)))
         .manage(AppServer(Arc::clone(&server)))
         .manage(AppApi(api))
+        .manage(AppResultsWatcher(watcher))
         .setup({
             let database = Arc::clone(&database);
             let server = Arc::clone(&server);
@@ -61,6 +67,9 @@ pub fn run() {
             commands::fetch_remote_current_event,
             commands::fetch_remote_standings,
             commands::open_remote_cm_join_link,
+            commands::get_results_feed,
+            commands::import_results_json,
+            commands::dismiss_results_warning,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

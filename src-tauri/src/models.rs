@@ -183,3 +183,58 @@ pub struct LeagueApiStatus {
     pub running: bool,
     pub port: u16,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParsedResultEntry {
+    pub driver_name: String,
+    pub driver_guid: Option<String>,
+    pub car_model: Option<String>,
+    pub position: Option<u32>,
+    pub best_lap_ms: Option<i64>,
+    pub laps: u32,
+    pub total_time_ms: Option<i64>,
+    pub dnf: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportResult {
+    pub success: bool,
+    pub session_type: String,
+    pub track: String,
+    pub entries_imported: u32,
+    pub points_awarded: u32,
+    pub message: String,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResultSummary {
+    pub id: i64,
+    pub session_type: String,
+    pub track: String,
+    pub source: String,
+    pub file_name: Option<String>,
+    pub imported_at: String,
+    pub entry_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultsWarning {
+    pub id: i64,
+    pub message: String,
+    pub file_name: Option<String>,
+    pub created_at: String,
+    pub dismissed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultsFeed {
+    pub warnings: Vec<ResultsWarning>,
+    pub recent: Vec<SessionResultSummary>,
+    pub watcher_active: bool,
+}

@@ -1,10 +1,11 @@
 use crate::db::Database;
 use crate::league_api::{fetch_current_event, fetch_health, fetch_standings, start_for_host, LeagueApiManager};
 use crate::models::{
-    AppState, CurrentEvent, DriverProfile, HostSettings, LeagueApiStatus, LeagueInvite,
-    LeagueSummary, PathSuggestions, PitLinkTestResult, RaceLaunchConfig, ServerStatus,
+    AppState, CurrentEvent, DriverProfile, HostSettings, ImportResult, LeagueApiStatus, LeagueInvite,
+    LeagueSummary, PathSuggestions, PitLinkTestResult, RaceLaunchConfig, ResultsFeed, ServerStatus,
     StandingsResponse,
 };
+use crate::results_watcher::{results_dir_for_server, ResultsWatcher};
 use crate::server::{self, ServerManager};
 use crate::steam::{
     build_openid_login_url, fetch_player_profile, parse_query_string, verify_openid_response,
@@ -18,6 +19,7 @@ use tokio::net::TcpListener;
 pub struct AppDb(pub Arc<Mutex<Database>>);
 pub struct AppServer(pub Arc<ServerManager>);
 pub struct AppApi(pub LeagueApiManager);
+pub struct AppResultsWatcher(pub ResultsWatcher);
 
 fn steam_api_key() -> Option<String> {
     std::env::var("LEAGUE_MANAGER_STEAM_API_KEY")
@@ -230,23 +232,52 @@ pub fn save_host_settings(
 pub fn start_race_server(
     db: State<'_, AppDb>,
     server: State<'_, AppServer>,
+    watcher: State<'_, AppResultsWatcher>,
     config: RaceLaunchConfig,
 ) -> Result<(), String> {
-    let settings = db
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .get_host_settings()
-        .map_err(|e| e.to_string())?;
+    let (settings, event_name, track) = {
+        let database = db.0.lock().map_err(|e| e.to_string())?;
+        let settings = database.get_host_settings().map_err(|e| e.to_string())?;
+        let event_name = config.server_name.clone();
+        let track = config.track.clone();
+        (settings, event_name, track)
+    };
+
     server
         .0
         .start(&settings, &config)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    {
+        let database = db.0.lock().map_err(|e| e.to_string())?;
+        database
+            .begin_active_event(&event_name, &track)
+            .map_err(|e| e.to_string())?;
+    }
+
+    let results_dir = results_dir_for_server(
+        &server
+            .0
+            .server_root()
+            .map_err(|e| e.to_string())?,
+    );
+    watcher.0.start(results_dir, Arc::clone(&db.0));
+
+    Ok(())
 }
 
 #[tauri::command]
-pub fn stop_race_server(server: State<'_, AppServer>) -> Result<(), String> {
-    server.0.stop().map_err(|e| e.to_string())
+pub fn stop_race_server(
+    db: State<'_, AppDb>,
+    server: State<'_, AppServer>,
+    watcher: State<'_, AppResultsWatcher>,
+) -> Result<(), String> {
+    watcher.0.stop();
+    server.0.stop().map_err(|e| e.to_string())?;
+    db.0.lock()
+        .map_err(|e| e.to_string())?
+        .complete_active_event()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -357,4 +388,36 @@ pub async fn open_remote_cm_join_link(
         .open_url(&link, None::<&str>)
         .map_err(|e| e.to_string())?;
     Ok(link)
+}
+
+#[tauri::command]
+pub fn get_results_feed(
+    db: State<'_, AppDb>,
+    watcher: State<'_, AppResultsWatcher>,
+) -> Result<ResultsFeed, String> {
+    db.0.lock()
+        .map_err(|e| e.to_string())?
+        .get_results_feed(watcher.0.is_running())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn import_results_json(
+    db: State<'_, AppDb>,
+    json: String,
+    file_name: Option<String>,
+) -> Result<ImportResult, String> {
+    let name = file_name.unwrap_or_else(|| "manual_import.json".to_string());
+    db.0.lock()
+        .map_err(|e| e.to_string())?
+        .import_results_file(&name, &json, "manual")
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn dismiss_results_warning(db: State<'_, AppDb>, warning_id: i64) -> Result<(), String> {
+    db.0.lock()
+        .map_err(|e| e.to_string())?
+        .dismiss_results_warning(warning_id)
+        .map_err(|e| e.to_string())
 }

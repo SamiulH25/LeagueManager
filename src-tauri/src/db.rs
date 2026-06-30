@@ -1,4 +1,9 @@
-use crate::models::{AppState, DriverProfile, HostSettings, LeagueInvite, LeagueSummary, StandingsResponse, StandingRow};
+use crate::models::{
+    AppState, DriverProfile, HostSettings, ImportResult, LeagueInvite, LeagueSummary, ResultsFeed,
+    ResultsWarning, SessionResultSummary, StandingsResponse, StandingRow,
+};
+use crate::points::points_for_position;
+use crate::results::parse_results_json;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
@@ -88,13 +93,73 @@ impl Database {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 championship_id INTEGER NOT NULL REFERENCES championships(id),
                 position INTEGER NOT NULL,
+                driver_id INTEGER REFERENCES drivers(id),
                 driver_name TEXT NOT NULL,
                 team TEXT,
                 points INTEGER NOT NULL DEFAULT 0,
                 avatar_url TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                championship_id INTEGER NOT NULL REFERENCES championships(id),
+                name TEXT NOT NULL,
+                track TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'scheduled',
+                started_at TEXT,
+                completed_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS session_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER REFERENCES events(id),
+                championship_id INTEGER NOT NULL REFERENCES championships(id),
+                session_type TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'auto',
+                file_name TEXT,
+                raw_json TEXT NOT NULL,
+                imported_at TEXT NOT NULL,
+                track TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS result_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_result_id INTEGER NOT NULL REFERENCES session_results(id),
+                driver_id INTEGER REFERENCES drivers(id),
+                driver_name TEXT NOT NULL,
+                driver_guid TEXT,
+                position INTEGER,
+                best_lap_ms INTEGER,
+                laps INTEGER NOT NULL DEFAULT 0,
+                total_time_ms INTEGER,
+                dnf INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS points_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                championship_id INTEGER NOT NULL REFERENCES championships(id),
+                event_id INTEGER REFERENCES events(id),
+                session_result_id INTEGER REFERENCES session_results(id),
+                driver_id INTEGER REFERENCES drivers(id),
+                driver_name TEXT NOT NULL,
+                points INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS results_warnings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message TEXT NOT NULL,
+                file_name TEXT,
+                created_at TEXT NOT NULL,
+                dismissed INTEGER NOT NULL DEFAULT 0
+            );
             "#,
         )?;
+        let _ = self.conn.execute(
+            "ALTER TABLE championship_standings ADD COLUMN driver_id INTEGER REFERENCES drivers(id)",
+            [],
+        );
         self.seed_demo_championship()?;
         Ok(())
     }
@@ -132,20 +197,44 @@ impl Database {
         )?;
 
         let championship_id = self.conn.last_insert_rowid();
-        let rows = [
-            (1, "A. Rossi", "Scuderia Rosso", 45),
-            (2, "B. Müller", "Alpine Racing", 38),
-            (3, "C. Tanaka", "Sunrise Motorsport", 32),
-            (4, "D. Brooks", "Brooks GP", 28),
-            (5, "E. Silva", "Porto Racing", 21),
-        ];
-        for (pos, name, team, pts) in rows {
-            self.conn.execute(
-                "INSERT INTO championship_standings
-                 (championship_id, position, driver_name, team, points)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![championship_id, pos, name, team, pts],
-            )?;
+
+        let mut members = self.conn.prepare(
+            "SELECT d.id, d.personaname, d.avatar_url, m.team
+             FROM league_members m
+             JOIN drivers d ON d.id = m.driver_id
+             WHERE m.league_id = ?1 AND m.status = 'active'",
+        )?;
+        let member_rows: Vec<(i64, String, String, Option<String>)> = members
+            .query_map([league_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if member_rows.is_empty() {
+            let rows = [
+                (1, "A. Rossi", "Scuderia Rosso", 45),
+                (2, "B. Müller", "Alpine Racing", 38),
+                (3, "C. Tanaka", "Sunrise Motorsport", 32),
+                (4, "D. Brooks", "Brooks GP", 28),
+                (5, "E. Silva", "Porto Racing", 21),
+            ];
+            for (pos, name, team, pts) in rows {
+                self.conn.execute(
+                    "INSERT INTO championship_standings
+                     (championship_id, position, driver_name, team, points)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![championship_id, pos, name, team, pts],
+                )?;
+            }
+        } else {
+            for (i, (driver_id, name, avatar, team)) in member_rows.iter().enumerate() {
+                self.conn.execute(
+                    "INSERT INTO championship_standings
+                     (championship_id, position, driver_id, driver_name, team, points, avatar_url)
+                     VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)",
+                    params![championship_id, i + 1, driver_id, name, team, avatar],
+                )?;
+            }
         }
         Ok(())
     }
@@ -445,6 +534,351 @@ impl Database {
             .optional()
             .ok()
             .flatten()
+    }
+
+    pub fn begin_active_event(&self, event_name: &str, track: &str) -> Result<i64, DbError> {
+        let championship_id = self
+            .first_championship_id()
+            .ok_or_else(|| DbError::Message("no championship — create a league first".into()))?;
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO events (championship_id, name, track, status, started_at)
+             VALUES (?1, ?2, ?3, 'live', ?4)",
+            params![championship_id, event_name, track, now],
+        )?;
+        let event_id = self.conn.last_insert_rowid();
+        self.meta_set("active_event_id", &event_id.to_string())?;
+        Ok(event_id)
+    }
+
+    pub fn complete_active_event(&self) -> Result<(), DbError> {
+        if let Some(id) = self.meta_get("active_event_id")? {
+            if !id.is_empty() {
+                let now = Utc::now().to_rfc3339();
+                self.conn.execute(
+                    "UPDATE events SET status = 'completed', completed_at = ?1 WHERE id = ?2",
+                    params![now, id],
+                )?;
+            }
+        }
+        self.meta_set("active_event_id", "")?;
+        Ok(())
+    }
+
+    fn active_championship_id(&self) -> Result<i64, DbError> {
+        if let Some(id) = self.meta_get("active_event_id")? {
+            if !id.is_empty() {
+                if let Ok(champ_id) = self.conn.query_row(
+                    "SELECT championship_id FROM events WHERE id = ?1",
+                    [id],
+                    |row| row.get::<_, i64>(0),
+                ) {
+                    return Ok(champ_id);
+                }
+            }
+        }
+        self.first_championship_id()
+            .ok_or_else(|| DbError::Message("no active championship".into()))
+    }
+
+    fn find_driver_id(&self, guid: Option<&str>, name: &str) -> Option<i64> {
+        if let Some(g) = guid.filter(|g| !g.is_empty()) {
+            if let Ok(id) = self.conn.query_row(
+                "SELECT id FROM drivers WHERE steam_id64 = ?1",
+                [g],
+                |row| row.get(0),
+            ) {
+                return Some(id);
+            }
+        }
+        self.conn
+            .query_row(
+                "SELECT id FROM drivers WHERE personaname = ?1 COLLATE NOCASE",
+                [name],
+                |row| row.get(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+    }
+
+    pub fn import_results_file(
+        &self,
+        file_name: &str,
+        raw: &str,
+        source: &str,
+    ) -> Result<ImportResult, DbError> {
+        let parsed = match parse_results_json(raw, Some(file_name)) {
+            Ok(p) => p,
+            Err(e) => {
+                let msg = e.to_string();
+                self.add_warning(&msg, Some(file_name))?;
+                return Ok(ImportResult {
+                    success: false,
+                    session_type: "?".into(),
+                    track: String::new(),
+                    entries_imported: 0,
+                    points_awarded: 0,
+                    message: msg.clone(),
+                    warning: Some(msg),
+                });
+            }
+        };
+
+        if self.conn.query_row(
+            "SELECT COUNT(*) FROM session_results WHERE file_name = ?1",
+            [file_name],
+            |row| row.get::<_, i64>(0),
+        )? > 0
+        {
+            return Ok(ImportResult {
+                success: true,
+                session_type: parsed.session_type.clone(),
+                track: parsed.track.clone(),
+                entries_imported: 0,
+                points_awarded: 0,
+                message: "Results file already imported".into(),
+                warning: None,
+            });
+        }
+
+        let championship_id = self.active_championship_id()?;
+        let event_id: Option<i64> = self
+            .meta_get("active_event_id")?
+            .and_then(|v| v.parse().ok())
+            .filter(|id| *id > 0);
+        let now = Utc::now().to_rfc3339();
+
+        self.conn.execute(
+            "INSERT INTO session_results
+             (event_id, championship_id, session_type, source, file_name, raw_json, imported_at, track)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                event_id,
+                championship_id,
+                parsed.session_type,
+                source,
+                file_name,
+                raw,
+                now,
+                parsed.track
+            ],
+        )?;
+        let session_result_id = self.conn.last_insert_rowid();
+
+        let mut unknown_drivers = 0u32;
+        let mut points_awarded = 0u32;
+
+        for entry in &parsed.entries {
+            let driver_id = self.find_driver_id(entry.driver_guid.as_deref(), &entry.driver_name);
+            if driver_id.is_none() {
+                unknown_drivers += 1;
+            }
+
+            self.conn.execute(
+                "INSERT INTO result_entries
+                 (session_result_id, driver_id, driver_name, driver_guid, position, best_lap_ms, laps, total_time_ms, dnf)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    session_result_id,
+                    driver_id,
+                    entry.driver_name,
+                    entry.driver_guid,
+                    entry.position,
+                    entry.best_lap_ms,
+                    entry.laps,
+                    entry.total_time_ms,
+                    entry.dnf as i32
+                ],
+            )?;
+
+            if parsed.session_type == "R" {
+                if let Some(pos) = entry.position {
+                    let pts = if entry.dnf { 0 } else { points_for_position(pos) };
+                    if pts > 0 {
+                        self.conn.execute(
+                            "INSERT INTO points_ledger
+                             (championship_id, event_id, session_result_id, driver_id, driver_name, points, reason, created_at)
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                            params![
+                                championship_id,
+                                event_id,
+                                session_result_id,
+                                driver_id,
+                                entry.driver_name,
+                                pts,
+                                format!("Race P{pos}"),
+                                now
+                            ],
+                        )?;
+                        points_awarded += pts;
+                    }
+                }
+            }
+        }
+
+        self.recalculate_championship_standings(championship_id)?;
+
+        let mut warning = None;
+        if unknown_drivers > 0 {
+            let msg = format!(
+                "{unknown_drivers} driver(s) not matched to league roster — invite them on Steam"
+            );
+            self.add_warning(&msg, Some(file_name))?;
+            warning = Some(msg);
+        }
+
+        Ok(ImportResult {
+            success: true,
+            session_type: parsed.session_type,
+            track: parsed.track,
+            entries_imported: parsed.entries.len() as u32,
+            points_awarded,
+            message: format!(
+                "Imported {} entries from {}",
+                parsed.entries.len(),
+                file_name
+            ),
+            warning,
+        })
+    }
+
+    fn recalculate_championship_standings(&self, championship_id: i64) -> Result<(), DbError> {
+        let ledger_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM points_ledger WHERE championship_id = ?1",
+            [championship_id],
+            |row| row.get(0),
+        )?;
+        if ledger_count == 0 {
+            return Ok(());
+        }
+
+        self.conn.execute(
+            "DELETE FROM championship_standings WHERE championship_id = ?1",
+            [championship_id],
+        )?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT COALESCE(driver_id, 0), driver_name, SUM(points) as total
+             FROM points_ledger
+             WHERE championship_id = ?1
+             GROUP BY COALESCE(driver_id, 0), driver_name
+             ORDER BY total DESC, driver_name ASC",
+        )?;
+        let rows: Vec<(i64, String, i64)> = stmt
+            .query_map([championship_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        for (i, (driver_id, name, total)) in rows.iter().enumerate() {
+            let avatar: Option<String> = if *driver_id > 0 {
+                self.conn
+                    .query_row(
+                        "SELECT avatar_url FROM drivers WHERE id = ?1",
+                        [driver_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?
+            } else {
+                None
+            };
+            let team: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT team FROM result_entries re
+                     JOIN session_results sr ON sr.id = re.session_result_id
+                     WHERE sr.championship_id = ?1 AND re.driver_name = ?2
+                     ORDER BY sr.imported_at DESC LIMIT 1",
+                    params![championship_id, name],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .flatten();
+
+            self.conn.execute(
+                "INSERT INTO championship_standings
+                 (championship_id, position, driver_id, driver_name, team, points, avatar_url)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    championship_id,
+                    i + 1,
+                    if *driver_id > 0 { Some(*driver_id) } else { None },
+                    name,
+                    team,
+                    total,
+                    avatar
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
+    fn add_warning(&self, message: &str, file_name: Option<&str>) -> Result<(), DbError> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO results_warnings (message, file_name, created_at) VALUES (?1, ?2, ?3)",
+            params![message, file_name, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_results_feed(&self, watcher_active: bool) -> Result<ResultsFeed, DbError> {
+        let mut warnings_stmt = self.conn.prepare(
+            "SELECT id, message, file_name, created_at, dismissed
+             FROM results_warnings
+             WHERE dismissed = 0
+             ORDER BY created_at DESC
+             LIMIT 10",
+        )?;
+        let warnings = warnings_stmt
+            .query_map([], |row| {
+                Ok(ResultsWarning {
+                    id: row.get(0)?,
+                    message: row.get(1)?,
+                    file_name: row.get(2)?,
+                    created_at: row.get(3)?,
+                    dismissed: row.get::<_, i64>(4)? != 0,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut recent_stmt = self.conn.prepare(
+            "SELECT sr.id, sr.session_type, sr.track, sr.source, sr.file_name, sr.imported_at,
+                    (SELECT COUNT(*) FROM result_entries re WHERE re.session_result_id = sr.id)
+             FROM session_results sr
+             ORDER BY sr.imported_at DESC
+             LIMIT 10",
+        )?;
+        let recent = recent_stmt
+            .query_map([], |row| {
+                Ok(SessionResultSummary {
+                    id: row.get(0)?,
+                    session_type: row.get(1)?,
+                    track: row.get(2)?,
+                    source: row.get(3)?,
+                    file_name: row.get(4)?,
+                    imported_at: row.get(5)?,
+                    entry_count: row.get(6)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ResultsFeed {
+            warnings,
+            recent,
+            watcher_active,
+        })
+    }
+
+    pub fn dismiss_results_warning(&self, warning_id: i64) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE results_warnings SET dismissed = 1 WHERE id = ?1",
+            [warning_id],
+        )?;
+        Ok(())
     }
 }
 

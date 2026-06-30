@@ -27,6 +27,7 @@ struct ServerRuntime {
     password: String,
     server_name: String,
     config_dir: PathBuf,
+    server_root: PathBuf,
 }
 
 impl Default for ServerRuntime {
@@ -38,6 +39,7 @@ impl Default for ServerRuntime {
             password: String::new(),
             server_name: String::new(),
             config_dir: PathBuf::new(),
+            server_root: PathBuf::new(),
         }
     }
 }
@@ -111,8 +113,17 @@ impl ServerManager {
         rt.password = race.password.clone();
         rt.server_name = race.server_name.clone();
         rt.config_dir = config_dir;
+        rt.server_root = server_root;
 
         Ok(())
+    }
+
+    pub fn server_root(&self) -> Result<PathBuf, ServerError> {
+        let rt = self.inner.lock().map_err(|e| ServerError::Message(e.to_string()))?;
+        if rt.server_root.as_os_str().is_empty() {
+            return Err(ServerError::Message("server not running".into()));
+        }
+        Ok(rt.server_root.clone())
     }
 
     pub fn stop(&self) -> Result<(), ServerError> {

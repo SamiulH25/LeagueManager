@@ -90,6 +90,8 @@ pub struct RaceLaunchConfig {
     pub max_clients: u32,
     #[serde(default)]
     pub ai_slots: u32,
+    #[serde(default)]
+    pub mod_urls: Vec<String>,
 }
 
 fn default_qualify() -> u32 {
@@ -237,4 +239,60 @@ pub struct ResultsFeed {
     pub warnings: Vec<ResultsWarning>,
     pub recent: Vec<SessionResultSummary>,
     pub watcher_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeagueMember {
+    pub driver_id: i64,
+    pub steam_id64: String,
+    pub personaname: String,
+    pub avatar_url: String,
+    pub team: Option<String>,
+    pub joined_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingLeagueInvite {
+    pub id: i64,
+    pub steam_id64: String,
+    pub personaname: String,
+    pub avatar_url: String,
+    pub invited_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeagueRoster {
+    pub members: Vec<LeagueMember>,
+    pub pending_invites: Vec<PendingLeagueInvite>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveLeague {
+    pub id: i64,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriverLeague {
+    pub id: i64,
+    pub name: String,
+    pub member_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChampionshipRound {
+    pub id: i64,
+    pub championship_id: i64,
+    pub round_number: u32,
+    pub name: String,
+    pub track: String,
+    pub status: String,
+    pub created_at: String,
+    pub completed_at: Option<String>,
 }

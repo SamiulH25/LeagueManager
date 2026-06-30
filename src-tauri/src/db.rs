@@ -1,5 +1,6 @@
 use crate::models::{
-    AppState, DriverProfile, HostSettings, ImportResult, LeagueInvite, LeagueSummary, ResultsFeed,
+    ActiveLeague, AppState, ChampionshipRound, DriverLeague, DriverProfile, HostSettings, ImportResult,
+    LeagueInvite, LeagueMember, LeagueRoster, LeagueSummary, PendingLeagueInvite, ResultsFeed,
     ResultsWarning, SessionResultSummary, StandingsResponse, StandingRow,
 };
 use crate::points::points_for_position;
@@ -153,6 +154,17 @@ impl Database {
                 file_name TEXT,
                 created_at TEXT NOT NULL,
                 dismissed INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS championship_rounds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                championship_id INTEGER NOT NULL REFERENCES championships(id),
+                round_number INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                track TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'scheduled',
+                created_at TEXT NOT NULL,
+                completed_at TEXT
             );
             "#,
         )?;
@@ -386,6 +398,7 @@ impl Database {
             params![id, driver_id, now],
         )?;
         self.ensure_demo_championship(id)?;
+        self.set_active_league_id(id)?;
         Ok(LeagueSummary {
             id,
             name: name.to_string(),
@@ -537,9 +550,8 @@ impl Database {
     }
 
     pub fn begin_active_event(&self, event_name: &str, track: &str) -> Result<i64, DbError> {
-        let championship_id = self
-            .first_championship_id()
-            .ok_or_else(|| DbError::Message("no championship — create a league first".into()))?;
+        let league_id = self.get_active_league_id()?;
+        let championship_id = self.championship_id_for_league(league_id)?;
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
             "INSERT INTO events (championship_id, name, track, status, started_at)
@@ -548,6 +560,7 @@ impl Database {
         )?;
         let event_id = self.conn.last_insert_rowid();
         self.meta_set("active_event_id", &event_id.to_string())?;
+        self.create_championship_round(championship_id, event_name, track)?;
         Ok(event_id)
     }
 
@@ -562,6 +575,7 @@ impl Database {
             }
         }
         self.meta_set("active_event_id", "")?;
+        self.complete_active_round()?;
         Ok(())
     }
 
@@ -718,6 +732,10 @@ impl Database {
         }
 
         self.recalculate_championship_standings(championship_id)?;
+
+        if parsed.session_type == "R" {
+            let _ = self.complete_active_round();
+        }
 
         let mut warning = None;
         if unknown_drivers > 0 {
@@ -879,6 +897,339 @@ impl Database {
             [warning_id],
         )?;
         Ok(())
+    }
+
+    pub fn get_active_league_id(&self) -> Result<i64, DbError> {
+        if let Some(v) = self.meta_get("active_league_id")? {
+            if let Ok(id) = v.parse::<i64>() {
+                if id > 0 {
+                    return Ok(id);
+                }
+            }
+        }
+        self.conn
+            .query_row(
+                "SELECT id FROM leagues WHERE archived_at IS NULL ORDER BY id LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| DbError::Message("no leagues — create one first".into()))
+    }
+
+    pub fn set_active_league_id(&self, league_id: i64) -> Result<(), DbError> {
+        let exists: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM leagues WHERE id = ?1 AND archived_at IS NULL",
+            [league_id],
+            |row| row.get(0),
+        )?;
+        if exists == 0 {
+            return Err(DbError::Message("league not found".into()));
+        }
+        self.meta_set("active_league_id", &league_id.to_string())
+    }
+
+    pub fn get_active_league(&self) -> Result<ActiveLeague, DbError> {
+        let id = self.get_active_league_id()?;
+        let name: String = self.conn.query_row(
+            "SELECT name FROM leagues WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )?;
+        Ok(ActiveLeague { id, name })
+    }
+
+    pub fn send_league_invite(
+        &self,
+        league_id: i64,
+        target_steam_id64: &str,
+        host_steam_id64: &str,
+        profile: &DriverProfile,
+    ) -> Result<PendingLeagueInvite, DbError> {
+        self.upsert_driver(profile)?;
+
+        let member: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM league_members m
+             JOIN drivers d ON d.id = m.driver_id
+             WHERE m.league_id = ?1 AND d.steam_id64 = ?2",
+            params![league_id, target_steam_id64],
+            |row| row.get(0),
+        )?;
+        if member > 0 {
+            return Err(DbError::Message("driver is already in this league".into()));
+        }
+
+        let pending: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM league_invites
+             WHERE league_id = ?1 AND steam_id64 = ?2 AND status = 'pending'",
+            params![league_id, target_steam_id64],
+            |row| row.get(0),
+        )?;
+        if pending > 0 {
+            return Err(DbError::Message("invite already pending for this driver".into()));
+        }
+
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO league_invites (league_id, steam_id64, status, invited_at, invited_by_steam_id64)
+             VALUES (?1, ?2, 'pending', ?3, ?4)",
+            params![league_id, target_steam_id64, now, host_steam_id64],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        Ok(PendingLeagueInvite {
+            id,
+            steam_id64: target_steam_id64.to_string(),
+            personaname: profile.personaname.clone(),
+            avatar_url: profile.avatar_url.clone(),
+            invited_at: now,
+        })
+    }
+
+    pub fn accept_invite(&self, invite_id: i64, steam_id64: &str) -> Result<(), DbError> {
+        let (league_id, invite_steam, status): (i64, String, String) = self.conn.query_row(
+            "SELECT league_id, steam_id64, status FROM league_invites WHERE id = ?1",
+            [invite_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+
+        if status != "pending" {
+            return Err(DbError::Message("invite is no longer pending".into()));
+        }
+        if invite_steam != steam_id64 {
+            return Err(DbError::Message(
+                "this invite is for a different Steam account".into(),
+            ));
+        }
+
+        let driver_id: i64 = self.conn.query_row(
+            "SELECT id FROM drivers WHERE steam_id64 = ?1",
+            [steam_id64],
+            |row| row.get(0),
+        )?;
+
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE league_invites SET status = 'accepted', responded_at = ?1 WHERE id = ?2",
+            params![now, invite_id],
+        )?;
+        self.conn.execute(
+            "INSERT OR IGNORE INTO league_members (league_id, driver_id, joined_at)
+             VALUES (?1, ?2, ?3)",
+            params![league_id, driver_id, now],
+        )?;
+        self.ensure_demo_championship(league_id)?;
+        Ok(())
+    }
+
+    pub fn decline_invite(&self, invite_id: i64, steam_id64: &str) -> Result<(), DbError> {
+        let (invite_steam, status): (String, String) = self.conn.query_row(
+            "SELECT steam_id64, status FROM league_invites WHERE id = ?1",
+            [invite_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        if status != "pending" {
+            return Err(DbError::Message("invite is no longer pending".into()));
+        }
+        if invite_steam != steam_id64 {
+            return Err(DbError::Message(
+                "this invite is for a different Steam account".into(),
+            ));
+        }
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE league_invites SET status = 'declined', responded_at = ?1 WHERE id = ?2",
+            params![now, invite_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn revoke_invite(&self, invite_id: i64, host_steam_id64: &str) -> Result<(), DbError> {
+        let invited_by: String = self.conn.query_row(
+            "SELECT invited_by_steam_id64 FROM league_invites WHERE id = ?1",
+            [invite_id],
+            |row| row.get(0),
+        )?;
+        if invited_by != host_steam_id64 {
+            return Err(DbError::Message("only the inviting host can revoke".into()));
+        }
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE league_invites SET status = 'revoked', responded_at = ?1 WHERE id = ?2",
+            params![now, invite_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_league_roster(&self, league_id: i64) -> Result<LeagueRoster, DbError> {
+        let mut members_stmt = self.conn.prepare(
+            "SELECT d.id, d.steam_id64, d.personaname, d.avatar_url, m.team, m.joined_at
+             FROM league_members m
+             JOIN drivers d ON d.id = m.driver_id
+             WHERE m.league_id = ?1 AND m.status = 'active'
+             ORDER BY m.joined_at ASC",
+        )?;
+        let members = members_stmt
+            .query_map([league_id], |row| {
+                Ok(LeagueMember {
+                    driver_id: row.get(0)?,
+                    steam_id64: row.get(1)?,
+                    personaname: row.get(2)?,
+                    avatar_url: row.get(3)?,
+                    team: row.get(4)?,
+                    joined_at: row.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut pending_stmt = self.conn.prepare(
+            "SELECT i.id, i.steam_id64, COALESCE(d.personaname, i.steam_id64), COALESCE(d.avatar_url, ''), i.invited_at
+             FROM league_invites i
+             LEFT JOIN drivers d ON d.steam_id64 = i.steam_id64
+             WHERE i.league_id = ?1 AND i.status = 'pending'
+             ORDER BY i.invited_at DESC",
+        )?;
+        let pending_invites = pending_stmt
+            .query_map([league_id], |row| {
+                Ok(PendingLeagueInvite {
+                    id: row.get(0)?,
+                    steam_id64: row.get(1)?,
+                    personaname: row.get(2)?,
+                    avatar_url: row.get(3)?,
+                    invited_at: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(LeagueRoster {
+            members,
+            pending_invites,
+        })
+    }
+
+    pub fn list_driver_leagues(&self, steam_id64: &str) -> Result<Vec<DriverLeague>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT l.id, l.name,
+                    (SELECT COUNT(*) FROM league_members m WHERE m.league_id = l.id) as members
+             FROM leagues l
+             JOIN league_members m ON m.league_id = l.id
+             JOIN drivers d ON d.id = m.driver_id
+             WHERE d.steam_id64 = ?1 AND l.archived_at IS NULL
+             ORDER BY l.name ASC",
+        )?;
+        let rows = stmt
+            .query_map([steam_id64], |row| {
+                Ok(DriverLeague {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    member_count: row.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn refresh_league_roster_profiles(&self, league_id: i64, profiles: &[DriverProfile]) -> Result<u32, DbError> {
+        let mut updated = 0u32;
+        for profile in profiles {
+            self.upsert_driver(profile)?;
+            updated += 1;
+        }
+        let _ = league_id;
+        Ok(updated)
+    }
+
+    pub fn championship_id_for_league(&self, league_id: i64) -> Result<i64, DbError> {
+        self.conn
+            .query_row(
+                "SELECT id FROM championships WHERE league_id = ?1 ORDER BY id LIMIT 1",
+                [league_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| DbError::Message("no championship for league".into()))
+    }
+
+    pub fn create_championship_round(
+        &self,
+        championship_id: i64,
+        name: &str,
+        track: &str,
+    ) -> Result<ChampionshipRound, DbError> {
+        let round_number: i64 = self.conn.query_row(
+            "SELECT COALESCE(MAX(round_number), 0) + 1 FROM championship_rounds WHERE championship_id = ?1",
+            [championship_id],
+            |row| row.get(0),
+        )?;
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO championship_rounds (championship_id, round_number, name, track, status, created_at)
+             VALUES (?1, ?2, ?3, ?4, 'live', ?5)",
+            params![championship_id, round_number, name, track, now],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        self.meta_set("active_round_id", &id.to_string())?;
+        Ok(ChampionshipRound {
+            id,
+            championship_id,
+            round_number: round_number as u32,
+            name: name.to_string(),
+            track: track.to_string(),
+            status: "live".to_string(),
+            created_at: now,
+            completed_at: None,
+        })
+    }
+
+    pub fn list_championship_rounds(&self, championship_id: i64) -> Result<Vec<ChampionshipRound>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, championship_id, round_number, name, track, status, created_at, completed_at
+             FROM championship_rounds
+             WHERE championship_id = ?1
+             ORDER BY round_number ASC",
+        )?;
+        let rows = stmt
+            .query_map([championship_id], |row| {
+                Ok(ChampionshipRound {
+                    id: row.get(0)?,
+                    championship_id: row.get(1)?,
+                    round_number: row.get::<_, i64>(2)? as u32,
+                    name: row.get(3)?,
+                    track: row.get(4)?,
+                    status: row.get(5)?,
+                    created_at: row.get(6)?,
+                    completed_at: row.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn complete_active_round(&self) -> Result<(), DbError> {
+        if let Some(id) = self.meta_get("active_round_id")? {
+            if !id.is_empty() {
+                let now = Utc::now().to_rfc3339();
+                self.conn.execute(
+                    "UPDATE championship_rounds SET status = 'completed', completed_at = ?1 WHERE id = ?2",
+                    params![now, id],
+                )?;
+            }
+        }
+        self.meta_set("active_round_id", "")?;
+        Ok(())
+    }
+
+    pub fn export_standings_csv(&self, championship_id: i64) -> Result<String, DbError> {
+        let standings = self.get_championship_standings(championship_id)?;
+        let mut csv = String::from("position,driver,team,points\n");
+        for row in standings.rows {
+            let team = row.team.unwrap_or_default().replace(',', " ");
+            csv.push_str(&format!(
+                "{},{},{},{}\n",
+                row.position,
+                row.driver_name.replace(',', " "),
+                team,
+                row.points
+            ));
+        }
+        Ok(csv)
     }
 }
 

@@ -91,26 +91,93 @@ pub async fn verify_openid_response(query: &HashMap<String, String>) -> Result<S
 }
 
 pub async fn fetch_player_profile(steam_id64: &str, api_key: Option<&str>) -> Result<DriverProfile, SteamError> {
+    let profiles = fetch_player_profiles_batch(&[steam_id64.to_string()], api_key).await?;
+    profiles
+        .into_iter()
+        .next()
+        .ok_or_else(|| SteamError::Api("player not found".into()))
+}
+
+pub async fn fetch_player_profiles_batch(
+    steam_ids: &[String],
+    api_key: Option<&str>,
+) -> Result<Vec<DriverProfile>, SteamError> {
+    if steam_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
     if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+        let ids = steam_ids.join(",");
         let url = format!(
-            "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={key}&steamids={steam_id64}"
+            "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={key}&steamids={ids}"
         );
         let client = Client::new();
         let resp: PlayerSummariesResponse = client.get(&url).send().await?.json().await?;
-        let player = resp
+        return Ok(resp
             .response
             .players
             .into_iter()
-            .next()
-            .ok_or_else(|| SteamError::Api("player not found".into()))?;
-        return Ok(DriverProfile {
-            steam_id64: player.steamid,
-            personaname: player.personaname,
-            avatar_url: player.avatarfull,
-        });
+            .map(|player| DriverProfile {
+                steam_id64: player.steamid,
+                personaname: player.personaname,
+                avatar_url: player.avatarfull,
+            })
+            .collect());
     }
 
-    Ok(dev_profile(steam_id64))
+    Ok(steam_ids.iter().map(|id| dev_profile(id)).collect())
+}
+
+pub async fn resolve_steam_identifier(
+    input: &str,
+    api_key: Option<&str>,
+) -> Result<String, SteamError> {
+    let trimmed = input.trim();
+    if trimmed.chars().all(|c| c.is_ascii_digit()) && trimmed.len() >= 15 {
+        return Ok(trimmed.to_string());
+    }
+
+    if let Ok(url) = Url::parse(trimmed) {
+        let path = url.path();
+        if let Some(id) = path.strip_prefix("/profiles/") {
+            let id = id.trim_end_matches('/');
+            if id.chars().all(|c| c.is_ascii_digit()) {
+                return Ok(id.to_string());
+            }
+        }
+        if let Some(vanity) = path.strip_prefix("/id/") {
+            let vanity = vanity.trim_end_matches('/');
+            if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+                let url = format!(
+                    "https://api.steampowered.com/ISteamUser/ResolveVanityURL/v1/?key={key}&vanityurl={vanity}"
+                );
+                let client = Client::new();
+                #[derive(Deserialize)]
+                struct VanityResponse {
+                    response: VanityInner,
+                }
+                #[derive(Deserialize)]
+                struct VanityInner {
+                    success: i32,
+                    steamid: Option<String>,
+                }
+                let resp: VanityResponse = client.get(&url).send().await?.json().await?;
+                if resp.response.success == 1 {
+                    if let Some(id) = resp.response.steamid {
+                        return Ok(id);
+                    }
+                }
+            }
+            return Err(SteamError::Api(
+                "custom Steam URLs need LEAGUE_MANAGER_STEAM_API_KEY — paste SteamID64 instead"
+                    .into(),
+            ));
+        }
+    }
+
+    Err(SteamError::Api(
+        "invalid Steam profile URL or SteamID64".into(),
+    ))
 }
 
 pub fn dev_profile(steam_id64: &str) -> DriverProfile {

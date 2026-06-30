@@ -1,4 +1,4 @@
-use crate::models::{AppState, DriverProfile, LeagueInvite, LeagueSummary};
+use crate::models::{AppState, DriverProfile, HostSettings, LeagueInvite, LeagueSummary};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
@@ -280,6 +280,45 @@ impl Database {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    pub fn get_host_settings(&self) -> Result<HostSettings, DbError> {
+        let mut s = HostSettings::default();
+        if let Some(v) = self.meta_get("assetto_server_path")? {
+            s.assetto_server_path = v;
+        }
+        if let Some(v) = self.meta_get("ac_install_path")? {
+            s.ac_install_path = v;
+        }
+        if let Some(v) = self.meta_get("http_port")? {
+            if let Ok(p) = v.parse() {
+                s.http_port = p;
+            }
+        }
+        if let Some(v) = self.meta_get("game_port")? {
+            if let Ok(p) = v.parse() {
+                s.game_port = p;
+            }
+        }
+        if let Some(v) = self.meta_get("admin_password")? {
+            if !v.is_empty() {
+                s.admin_password = v;
+            }
+        }
+        if let Some(v) = self.meta_get("public_ip_override")? {
+            s.public_ip_override = v;
+        }
+        Ok(s)
+    }
+
+    pub fn save_host_settings(&self, settings: &HostSettings) -> Result<(), DbError> {
+        self.meta_set("assetto_server_path", &settings.assetto_server_path)?;
+        self.meta_set("ac_install_path", &settings.ac_install_path)?;
+        self.meta_set("http_port", &settings.http_port.to_string())?;
+        self.meta_set("game_port", &settings.game_port.to_string())?;
+        self.meta_set("admin_password", &settings.admin_password)?;
+        self.meta_set("public_ip_override", &settings.public_ip_override)?;
+        Ok(())
     }
 }
 

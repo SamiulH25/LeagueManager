@@ -1,15 +1,20 @@
 use crate::db::Database;
-use crate::models::{AppState, DriverProfile, LeagueInvite, LeagueSummary};
+use crate::models::{
+    AppState, DriverProfile, HostSettings, LeagueInvite, LeagueSummary, PathSuggestions,
+    RaceLaunchConfig, ServerStatus,
+};
+use crate::server::{self, ServerManager};
 use crate::steam::{
     build_openid_login_url, fetch_player_profile, parse_query_string, verify_openid_response,
 };
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 pub struct AppDb(pub Mutex<Database>);
+pub struct AppServer(pub ServerManager);
 
 fn steam_api_key() -> Option<String> {
     std::env::var("LEAGUE_MANAGER_STEAM_API_KEY")
@@ -73,8 +78,7 @@ pub async fn steam_login(app: AppHandle, db: State<'_, AppDb>) -> Result<DriverP
         .await
         .map_err(|e| format!("failed to bind auth port: {e}"))?;
 
-    let opener = app.opener();
-    opener
+    app.opener()
         .open_url(&login_url, None::<&str>)
         .map_err(|e| format!("failed to open browser: {e}"))?;
 
@@ -91,10 +95,7 @@ pub async fn steam_login(app: AppHandle, db: State<'_, AppDb>) -> Result<DriverP
     let request = String::from_utf8_lossy(&buffer[..n]);
 
     let first_line = request.lines().next().unwrap_or("");
-    let path = first_line
-        .split_whitespace()
-        .nth(1)
-        .unwrap_or("/");
+    let path = first_line.split_whitespace().nth(1).unwrap_or("/");
     let query = path.split('?').nth(1).unwrap_or("");
     let params = parse_query_string(query);
 
@@ -164,4 +165,92 @@ pub fn list_my_invites(db: State<'_, AppDb>) -> Result<Vec<LeagueInvite>, String
 #[tauri::command]
 pub fn get_db_path() -> String {
     crate::db::db_path().to_string_lossy().to_string()
+}
+
+#[tauri::command]
+pub fn detect_paths() -> PathSuggestions {
+    server::detect_path_suggestions()
+}
+
+#[tauri::command]
+pub fn get_host_settings(db: State<'_, AppDb>) -> Result<HostSettings, String> {
+    db.0.lock()
+        .map_err(|e| e.to_string())?
+        .get_host_settings()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_host_settings(db: State<'_, AppDb>, settings: HostSettings) -> Result<(), String> {
+    db.0.lock()
+        .map_err(|e| e.to_string())?
+        .save_host_settings(&settings)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn start_race_server(
+    db: State<'_, AppDb>,
+    server: State<'_, AppServer>,
+    config: RaceLaunchConfig,
+) -> Result<(), String> {
+    let settings = db
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get_host_settings()
+        .map_err(|e| e.to_string())?;
+    server
+        .0
+        .start(&settings, &config)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn stop_race_server(server: State<'_, AppServer>) -> Result<(), String> {
+    server.0.stop().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_server_status(
+    db: State<'_, AppDb>,
+    server: State<'_, AppServer>,
+) -> Result<ServerStatus, String> {
+    let settings = db
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get_host_settings()
+        .map_err(|e| e.to_string())?;
+    server
+        .0
+        .status(&settings)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn open_cm_join_link(
+    app: AppHandle,
+    db: State<'_, AppDb>,
+    server: State<'_, AppServer>,
+) -> Result<String, String> {
+    let settings = db
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get_host_settings()
+        .map_err(|e| e.to_string())?;
+    let status = server
+        .0
+        .status(&settings)
+        .await
+        .map_err(|e| e.to_string())?;
+    let link = status
+        .cm_join_link
+        .ok_or_else(|| "Server not running or public IP unavailable".to_string())?;
+    app.opener()
+        .open_url(&link, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    Ok(link)
 }

@@ -477,11 +477,11 @@ REST + optional WebSocket for live updates.
 
 ### Phase 2 — League API + driver client (2–3 weeks)
 
-- [ ] Embedded Axum server on configurable port
-- [ ] Driver settings: host IP + connection test
-- [ ] Driver views: standings (static seed data first)
-- [ ] `Join race` opens CM link from `/api/events/current`
-- [ ] Host shares one address; driver sees live event status
+- [x] Embedded Axum server on configurable port
+- [x] Driver settings: host IP + connection test
+- [x] Driver views: standings (static seed data first)
+- [x] `Join race` opens CM link from `/api/events/current`
+- [x] Host shares one address; driver sees live event status
 
 **Exit criteria:** Driver app connects to host IP and joins running server through CM.
 

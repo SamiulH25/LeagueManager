@@ -3,15 +3,17 @@
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import { api } from "$lib/api";
-  import type { RaceLaunchConfig, ServerStatus } from "$lib/types";
-  import { Copy, ExternalLink, Play, Square, Wifi } from "@lucide/svelte";
+  import type { LeagueApiStatus, RaceLaunchConfig, ServerStatus } from "$lib/types";
+  import { Copy, ExternalLink, Link, Play, Square, Wifi } from "@lucide/svelte";
   import { onDestroy, onMount } from "svelte";
 
   let status = $state<ServerStatus | null>(null);
+  let apiStatus = $state<LeagueApiStatus | null>(null);
   let launching = $state(false);
   let stopping = $state(false);
   let error = $state<string | null>(null);
   let copied = $state(false);
+  let copiedPitLink = $state(false);
 
   let serverName = $state("LeagueManager Race");
   let track = $state("ks_nordschleife");
@@ -28,6 +30,7 @@
   async function refreshStatus() {
     try {
       status = await api.getServerStatus();
+      apiStatus = await api.getLeagueApiStatus();
       error = status.error ?? null;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -95,6 +98,15 @@
     setTimeout(() => (copied = false), 2000);
   }
 
+  async function copyPitLink() {
+    const ip = status?.publicIp;
+    const port = apiStatus?.port ?? 9847;
+    if (!ip) return;
+    await navigator.clipboard.writeText(`${ip}:${port}`);
+    copiedPitLink = true;
+    setTimeout(() => (copiedPitLink = false), 2000);
+  }
+
   async function openInCm() {
     try {
       await api.openCmJoinLink();
@@ -107,6 +119,8 @@
   const publicIp = $derived(status?.publicIp ?? "— — —");
   const httpPort = $derived(status?.httpPort ?? 8081);
   const gamePort = $derived(status?.gamePort ?? 9600);
+  const syncPort = $derived(apiStatus?.port ?? 9847);
+  const apiLive = $derived(apiStatus?.running ?? false);
 </script>
 
 <div class="flex flex-col gap-4">
@@ -134,6 +148,18 @@
           HTTP :{httpPort} · UDP :{gamePort}
         </span>
       </div>
+      <div class="flex items-center gap-2 rounded-md bg-[var(--color-asphalt)] px-3 py-2">
+        <Link class="size-4 {apiLive ? 'text-[var(--color-green)]' : 'text-[var(--color-dim)]'}" strokeWidth={1.75} />
+        <span class="font-mono text-xs text-[var(--color-muted)]">
+          League API :{syncPort} {apiLive ? "· online" : "· offline"}
+        </span>
+      </div>
+      {#if status?.publicIp && apiLive}
+        <Button variant="secondary" size="sm" class="w-full" onclick={copyPitLink}>
+          <Copy class="size-3.5" strokeWidth={2} />
+          {copiedPitLink ? "Copied!" : `Copy driver address (${publicIp}:${syncPort})`}
+        </Button>
+      {/if}
       {#if status?.cmJoinLink}
         <div class="flex gap-2">
           <Button variant="secondary" size="sm" class="flex-1" onclick={copyJoinLink}>

@@ -18,9 +18,11 @@
     gamePort: 9600,
     adminPassword: "leaguemgr",
     publicIpOverride: "",
+    syncPort: 9847,
   });
   let httpPort = $state("8081");
   let gamePort = $state("9600");
+  let syncPort = $state("9847");
   let saving = $state(false);
   let detecting = $state(false);
   let message = $state<string | null>(null);
@@ -30,6 +32,7 @@
     settings = await api.getHostSettings();
     httpPort = String(settings.httpPort);
     gamePort = String(settings.gamePort);
+    syncPort = String(settings.syncPort);
   });
 
   async function detectPaths() {
@@ -60,6 +63,7 @@
         ...settings,
         httpPort: Number(httpPort) || 8081,
         gamePort: Number(gamePort) || 9600,
+        syncPort: Number(syncPort) || 9847,
       });
       message = "Pit config saved.";
     } catch (e) {
@@ -134,6 +138,13 @@
           <div>
             <p class="mb-1 font-label text-[0.6rem] text-[var(--color-dim)]">Game port (UDP/TCP)</p>
             <Input bind:value={gamePort} type="number" mono />
+          </div>
+          <div>
+            <p class="mb-1 font-label text-[0.6rem] text-[var(--color-dim)]">League sync port</p>
+            <Input bind:value={syncPort} type="number" mono />
+            <p class="mt-1 text-xs text-[var(--color-muted)]">
+              Drivers connect here for standings and live event status (default 9847).
+            </p>
           </div>
           <div class="sm:col-span-2">
             <p class="mb-1 font-label text-[0.6rem] text-[var(--color-dim)]">Public IP override</p>

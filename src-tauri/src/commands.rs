@@ -1,25 +1,42 @@
 use crate::db::Database;
+use crate::league_api::{fetch_current_event, fetch_health, fetch_standings, start_for_host, LeagueApiManager};
 use crate::models::{
-    AppState, DriverProfile, HostSettings, LeagueInvite, LeagueSummary, PathSuggestions,
-    RaceLaunchConfig, ServerStatus,
+    AppState, CurrentEvent, DriverProfile, HostSettings, LeagueApiStatus, LeagueInvite,
+    LeagueSummary, PathSuggestions, PitLinkTestResult, RaceLaunchConfig, ServerStatus,
+    StandingsResponse,
 };
 use crate::server::{self, ServerManager};
 use crate::steam::{
     build_openid_login_url, fetch_player_profile, parse_query_string, verify_openid_response,
 };
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-pub struct AppDb(pub Mutex<Database>);
-pub struct AppServer(pub ServerManager);
+pub struct AppDb(pub Arc<Mutex<Database>>);
+pub struct AppServer(pub Arc<ServerManager>);
+pub struct AppApi(pub LeagueApiManager);
 
 fn steam_api_key() -> Option<String> {
     std::env::var("LEAGUE_MANAGER_STEAM_API_KEY")
         .ok()
         .filter(|k| !k.is_empty())
+}
+
+fn sync_league_api(
+    api: &LeagueApiManager,
+    db: &Arc<Mutex<Database>>,
+    server: &Arc<ServerManager>,
+    mode: Option<&str>,
+) -> Result<(), String> {
+    if mode == Some("host") {
+        start_for_host(api, db, server)
+    } else {
+        api.stop();
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -31,12 +48,18 @@ pub fn get_app_state(db: State<'_, AppDb>) -> Result<AppState, String> {
 }
 
 #[tauri::command]
-pub fn set_app_mode(db: State<'_, AppDb>, mode: String) -> Result<AppState, String> {
+pub fn set_app_mode(
+    db: State<'_, AppDb>,
+    api: State<'_, AppApi>,
+    server: State<'_, AppServer>,
+    mode: String,
+) -> Result<AppState, String> {
     let state = {
         let database = db.0.lock().map_err(|e| e.to_string())?;
         database.set_app_mode(&mode).map_err(|e| e.to_string())?;
         database.get_app_state().map_err(|e| e.to_string())?
     };
+    sync_league_api(&api.0, &db.0, &server.0, state.app_mode.as_deref())?;
     Ok(state)
 }
 
@@ -181,11 +204,26 @@ pub fn get_host_settings(db: State<'_, AppDb>) -> Result<HostSettings, String> {
 }
 
 #[tauri::command]
-pub fn save_host_settings(db: State<'_, AppDb>, settings: HostSettings) -> Result<(), String> {
-    db.0.lock()
-        .map_err(|e| e.to_string())?
-        .save_host_settings(&settings)
-        .map_err(|e| e.to_string())
+pub fn save_host_settings(
+    db: State<'_, AppDb>,
+    api: State<'_, AppApi>,
+    server: State<'_, AppServer>,
+    settings: HostSettings,
+) -> Result<(), String> {
+    let mode = {
+        let database = db.0.lock().map_err(|e| e.to_string())?;
+        database
+            .save_host_settings(&settings)
+            .map_err(|e| e.to_string())?;
+        database
+            .get_app_state()
+            .map_err(|e| e.to_string())?
+            .app_mode
+    };
+    if mode.as_deref() == Some("host") {
+        start_for_host(&api.0, &db.0, &server.0)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -249,6 +287,72 @@ pub async fn open_cm_join_link(
     let link = status
         .cm_join_link
         .ok_or_else(|| "Server not running or public IP unavailable".to_string())?;
+    app.opener()
+        .open_url(&link, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    Ok(link)
+}
+
+#[tauri::command]
+pub fn get_league_api_status(db: State<'_, AppDb>, api: State<'_, AppApi>) -> Result<LeagueApiStatus, String> {
+    let port = db
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get_host_settings()
+        .map_err(|e| e.to_string())?
+        .sync_port;
+    Ok(LeagueApiStatus {
+        running: api.0.is_running(),
+        port,
+    })
+}
+
+#[tauri::command]
+pub async fn test_pit_link(host: String, port: u16) -> Result<PitLinkTestResult, String> {
+    match fetch_health(&host, port).await {
+        Ok((health, latency_ms)) => Ok(PitLinkTestResult {
+            connected: true,
+            latency_ms,
+            version: Some(health.version),
+            message: "Connected to host pit link".to_string(),
+        }),
+        Err(e) => Ok(PitLinkTestResult {
+            connected: false,
+            latency_ms: 0,
+            version: None,
+            message: e,
+        }),
+    }
+}
+
+#[tauri::command]
+pub async fn fetch_remote_current_event(
+    host: String,
+    port: u16,
+) -> Result<CurrentEvent, String> {
+    fetch_current_event(&host, port).await
+}
+
+#[tauri::command]
+pub async fn fetch_remote_standings(
+    host: String,
+    port: u16,
+    championship_id: i64,
+) -> Result<StandingsResponse, String> {
+    fetch_standings(&host, port, championship_id).await
+}
+
+#[tauri::command]
+pub async fn open_remote_cm_join_link(
+    app: AppHandle,
+    host: String,
+    port: u16,
+) -> Result<String, String> {
+    let event = fetch_current_event(&host, port).await?;
+    let link = event
+        .cm_join_link
+        .ok_or_else(|| "No live race or join link unavailable".to_string())?;
     app.opener()
         .open_url(&link, None::<&str>)
         .map_err(|e| e.to_string())?;

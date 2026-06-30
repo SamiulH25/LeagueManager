@@ -1,4 +1,4 @@
-use crate::models::{AppState, DriverProfile, HostSettings, LeagueInvite, LeagueSummary};
+use crate::models::{AppState, DriverProfile, HostSettings, LeagueInvite, LeagueSummary, StandingsResponse, StandingRow};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
@@ -76,8 +76,77 @@ impl Database {
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS championships (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_id INTEGER NOT NULL REFERENCES leagues(id),
+                name TEXT NOT NULL,
+                season TEXT NOT NULL DEFAULT '2026'
+            );
+
+            CREATE TABLE IF NOT EXISTS championship_standings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                championship_id INTEGER NOT NULL REFERENCES championships(id),
+                position INTEGER NOT NULL,
+                driver_name TEXT NOT NULL,
+                team TEXT,
+                points INTEGER NOT NULL DEFAULT 0,
+                avatar_url TEXT
+            );
             "#,
         )?;
+        self.seed_demo_championship()?;
+        Ok(())
+    }
+
+    fn seed_demo_championship(&self) -> Result<(), DbError> {
+        let league_id: i64 = self
+            .conn
+            .query_row(
+                "SELECT id FROM leagues ORDER BY id LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+
+        if league_id == 0 {
+            return Ok(());
+        }
+        self.ensure_demo_championship(league_id)
+    }
+
+    fn ensure_demo_championship(&self, league_id: i64) -> Result<(), DbError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM championships WHERE league_id = ?1",
+            [league_id],
+            |row| row.get(0),
+        )?;
+        if count > 0 {
+            return Ok(());
+        }
+
+        self.conn.execute(
+            "INSERT INTO championships (league_id, name, season) VALUES (?1, ?2, ?3)",
+            params![league_id, "Demo Championship", "2026"],
+        )?;
+
+        let championship_id = self.conn.last_insert_rowid();
+        let rows = [
+            (1, "A. Rossi", "Scuderia Rosso", 45),
+            (2, "B. Müller", "Alpine Racing", 38),
+            (3, "C. Tanaka", "Sunrise Motorsport", 32),
+            (4, "D. Brooks", "Brooks GP", 28),
+            (5, "E. Silva", "Porto Racing", 21),
+        ];
+        for (pos, name, team, pts) in rows {
+            self.conn.execute(
+                "INSERT INTO championship_standings
+                 (championship_id, position, driver_name, team, points)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![championship_id, pos, name, team, pts],
+            )?;
+        }
         Ok(())
     }
 
@@ -227,6 +296,7 @@ impl Database {
              VALUES (?1, ?2, ?3)",
             params![id, driver_id, now],
         )?;
+        self.ensure_demo_championship(id)?;
         Ok(LeagueSummary {
             id,
             name: name.to_string(),
@@ -308,6 +378,11 @@ impl Database {
         if let Some(v) = self.meta_get("public_ip_override")? {
             s.public_ip_override = v;
         }
+        if let Some(v) = self.meta_get("sync_port")? {
+            if let Ok(p) = v.parse() {
+                s.sync_port = p;
+            }
+        }
         Ok(s)
     }
 
@@ -318,7 +393,58 @@ impl Database {
         self.meta_set("game_port", &settings.game_port.to_string())?;
         self.meta_set("admin_password", &settings.admin_password)?;
         self.meta_set("public_ip_override", &settings.public_ip_override)?;
+        self.meta_set("sync_port", &settings.sync_port.to_string())?;
         Ok(())
+    }
+
+    pub fn get_championship_standings(
+        &self,
+        championship_id: i64,
+    ) -> Result<StandingsResponse, DbError> {
+        let name: String = self
+            .conn
+            .query_row(
+                "SELECT name FROM championships WHERE id = ?1",
+                [championship_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| DbError::Message("championship not found".into()))?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT position, driver_name, team, points, avatar_url
+             FROM championship_standings
+             WHERE championship_id = ?1
+             ORDER BY position ASC",
+        )?;
+        let rows = stmt
+            .query_map([championship_id], |row| {
+                Ok(StandingRow {
+                    position: row.get::<_, i64>(0)? as u32,
+                    driver_name: row.get(1)?,
+                    team: row.get(2)?,
+                    points: row.get::<_, i64>(3)? as u32,
+                    avatar_url: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(StandingsResponse {
+            championship_id,
+            championship_name: name,
+            rows,
+        })
+    }
+
+    pub fn first_championship_id(&self) -> Option<i64> {
+        self.conn
+            .query_row(
+                "SELECT id FROM championships ORDER BY id LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
     }
 }
 

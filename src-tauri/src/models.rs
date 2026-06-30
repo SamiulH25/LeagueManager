@@ -46,6 +46,7 @@ pub struct HostSettings {
     pub game_port: u16,
     pub admin_password: String,
     pub public_ip_override: String,
+    pub sync_port: u16,
 }
 
 impl Default for HostSettings {
@@ -57,6 +58,7 @@ impl Default for HostSettings {
             game_port: 9600,
             admin_password: "leaguemgr".to_string(),
             public_ip_override: String::new(),
+            sync_port: 9847,
         }
     }
 }
@@ -123,4 +125,61 @@ pub struct ServerStatus {
     pub server_name: Option<String>,
     pub info: Option<ServerInfo>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthResponse {
+    pub ok: bool,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentEvent {
+    pub status: String,
+    pub server_name: Option<String>,
+    pub track: Option<String>,
+    pub public_ip: Option<String>,
+    pub http_port: Option<u16>,
+    pub game_port: Option<u16>,
+    pub password: Option<String>,
+    pub cm_join_link: Option<String>,
+    pub clients: Option<u32>,
+    pub max_clients: Option<u32>,
+    pub time_left: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StandingRow {
+    pub position: u32,
+    pub driver_name: String,
+    pub team: Option<String>,
+    pub points: u32,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StandingsResponse {
+    pub championship_id: i64,
+    pub championship_name: String,
+    pub rows: Vec<StandingRow>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PitLinkTestResult {
+    pub connected: bool,
+    pub latency_ms: u64,
+    pub version: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeagueApiStatus {
+    pub running: bool,
+    pub port: u16,
 }

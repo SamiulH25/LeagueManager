@@ -1,22 +1,44 @@
 mod commands;
 mod db;
+mod league_api;
 mod models;
 mod server;
 mod steam;
 
-use commands::{AppDb, AppServer};
+use commands::{AppApi, AppDb, AppServer};
 use db::Database;
+use league_api::{start_for_host, LeagueApiManager};
 use server::ServerManager;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let database = Database::open().expect("failed to open database");
+    let database = Arc::new(Mutex::new(Database::open().expect("failed to open database")));
+    let server = Arc::new(ServerManager::new());
+    let api = LeagueApiManager::new();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(AppDb(Mutex::new(database)))
-        .manage(AppServer(ServerManager::new()))
+        .manage(AppDb(Arc::clone(&database)))
+        .manage(AppServer(Arc::clone(&server)))
+        .manage(AppApi(api))
+        .setup({
+            let database = Arc::clone(&database);
+            let server = Arc::clone(&server);
+            move |app| {
+                let db = app.state::<AppDb>();
+                let api = app.state::<AppApi>();
+                if let Ok(state) = db.0.lock() {
+                    if state.get_app_state().ok().and_then(|s| s.app_mode).as_deref()
+                        == Some("host")
+                    {
+                        let _ = start_for_host(&api.0, &database, &server);
+                    }
+                }
+                Ok(())
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_state,
             commands::set_app_mode,
@@ -34,6 +56,11 @@ pub fn run() {
             commands::stop_race_server,
             commands::get_server_status,
             commands::open_cm_join_link,
+            commands::get_league_api_status,
+            commands::test_pit_link,
+            commands::fetch_remote_current_event,
+            commands::fetch_remote_standings,
+            commands::open_remote_cm_join_link,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

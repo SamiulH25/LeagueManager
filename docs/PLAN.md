@@ -489,12 +489,12 @@ REST + optional WebSocket for live updates.
 
 ### Phase 3 — Results & points (2–3 weeks)
 
-- [ ] Results folder watcher + JSON parser (AC1 format)
-- [ ] Map GUIDs → league drivers
-- [ ] Qualifying + race import for multi-session events
-- [ ] Points calculation engine
-- [ ] Failure warnings + manual results UI
-- [ ] Standings auto-refresh on driver clients
+- [x] Results folder watcher + JSON parser (AC1 format)
+- [x] Map GUIDs → league drivers
+- [x] Qualifying + race import for multi-session events
+- [x] Points calculation engine
+- [x] Failure warnings + manual results UI
+- [x] Standings auto-refresh on driver clients
 
 **Exit criteria:** Full event loop: host runs race → results appear → standings update without manual spreadsheet.
 

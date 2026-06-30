@@ -5,6 +5,7 @@
   import TimingRow from "$lib/components/racing/TimingRow.svelte";
   import TelemetryTile from "$lib/components/racing/TelemetryTile.svelte";
   import LaunchPanel from "$lib/components/host/LaunchPanel.svelte";
+  import ResultsPanel from "$lib/components/host/ResultsPanel.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import { api } from "$lib/api";
@@ -120,6 +121,10 @@
 
       <div class="xl:col-span-4">
         <LaunchPanel />
+      </div>
+
+      <div class="xl:col-span-12">
+        <ResultsPanel />
       </div>
     </div>
   </RaceControlShell>

@@ -8,13 +8,14 @@
   import { loadPitLink } from "$lib/pit-link";
   import type { StandingsResponse } from "$lib/types";
   import { RefreshCw } from "@lucide/svelte";
-  import { getContext, onMount } from "svelte";
+  import { getContext, onDestroy, onMount } from "svelte";
   import type { AppStore } from "$lib/stores/app.svelte";
 
   const store = getContext<AppStore>("app");
   let standings = $state<StandingsResponse | null>(null);
   let error = $state<string | null>(null);
   let loading = $state(false);
+  let pollTimer: ReturnType<typeof setInterval> | undefined;
   const pitLink = $derived(loadPitLink());
 
   async function loadStandings() {
@@ -35,7 +36,14 @@
     }
   }
 
-  onMount(loadStandings);
+  onMount(() => {
+    loadStandings();
+    pollTimer = setInterval(loadStandings, 15000);
+  });
+
+  onDestroy(() => {
+    if (pollTimer) clearInterval(pollTimer);
+  });
 
   async function logout() {
     await store.logout();

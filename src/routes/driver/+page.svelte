@@ -1,13 +1,14 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import AppShell from "$lib/components/layout/AppShell.svelte";
+  import RaceControlShell from "$lib/components/layout/RaceControlShell.svelte";
+  import TimingPanel from "$lib/components/racing/TimingPanel.svelte";
+  import TelemetryTile from "$lib/components/racing/TelemetryTile.svelte";
   import Avatar from "$lib/components/ui/Avatar.svelte";
-  import Badge from "$lib/components/ui/Badge.svelte";
   import Button from "$lib/components/ui/Button.svelte";
-  import Card from "$lib/components/ui/Card.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import { api } from "$lib/api";
   import type { LeagueInvite } from "$lib/types";
+  import { ExternalLink, Mail, Radio } from "@lucide/svelte";
   import { getContext, onMount } from "svelte";
   import type { AppStore } from "$lib/stores/app.svelte";
 
@@ -15,22 +16,7 @@
   let invites = $state<LeagueInvite[]>([]);
   let hostAddress = $state("");
 
-  const nav = [
-    { href: "/driver", label: "Home", icon: "◉" },
-    { href: "/driver/leagues", label: "My leagues", icon: "▦" },
-    { href: "/driver/settings", label: "Settings", icon: "⚙" },
-  ];
-
   onMount(async () => {
-    const s = store.state;
-    if (!s?.session) {
-      goto("/login");
-      return;
-    }
-    if (s.appMode !== "driver") {
-      goto("/host");
-      return;
-    }
     invites = await api.listMyInvites();
     hostAddress = localStorage.getItem("lm_host_address") ?? "";
   });
@@ -45,75 +31,127 @@
   }
 </script>
 
-{#if store.state?.session}
-  <AppShell mode="driver" session={store.state.session} {nav} onLogout={logout}>
-    <header class="mb-8">
-      <Badge variant="live">Driver hub</Badge>
-      <h1 class="mt-3 font-display text-3xl font-bold tracking-tight">Race ready</h1>
-      <p class="mt-1 text-[var(--color-muted)]">
-        Accept invites, follow standings, join through Content Manager.
-      </p>
-    </header>
-
-    <div class="grid gap-6 lg:grid-cols-3">
-      <Card class="lg:col-span-2" padding="lg">
-        <h2 class="font-display text-xl font-semibold">Pending invites</h2>
-        <p class="mt-1 text-sm text-[var(--color-muted)]">
-          Leagues are invite-only — accept to see standings and join races.
-        </p>
-
-        <ul class="mt-6 space-y-3">
-          {#each invites as invite (invite.id)}
-            <li
-              class="flex items-center gap-4 rounded-xl border border-[var(--color-carbon-border)] bg-[var(--color-carbon-elevated)] p-4"
-            >
-              {#if invite.hostAvatarUrl}
-                <Avatar
-                  src={invite.hostAvatarUrl}
-                  alt={invite.hostPersonaname ?? "Host"}
-                  size="md"
-                />
-              {/if}
-              <div class="flex-1">
-                <p class="font-medium">{invite.leagueName}</p>
-                <p class="text-xs text-[var(--color-muted)]">
-                  From {invite.hostPersonaname ?? "host"}
-                </p>
-              </div>
-              <div class="flex gap-2">
-                <Button variant="ghost" size="sm">Decline</Button>
-                <Button variant="primary" size="sm">Accept</Button>
-              </div>
-            </li>
-          {:else}
-            <li
-              class="rounded-xl border border-dashed border-[var(--color-carbon-border)] p-10 text-center"
-            >
-              <p class="text-sm text-[var(--color-muted)]">No pending invites</p>
-              <p class="mt-1 text-xs text-[var(--color-muted)]">
-                Ask your host to invite your Steam account.
-              </p>
-            </li>
-          {/each}
-        </ul>
-      </Card>
-
-      <Card padding="lg">
-        <h3 class="font-display font-semibold">Host connection</h3>
-        <p class="mt-1 text-xs text-[var(--color-muted)]">
-          Your league host's public IP (Phase 2 sync).
-        </p>
-        <Input bind:value={hostAddress} placeholder="203.0.113.42" class="mt-4" />
-        <Button variant="secondary" size="sm" class="mt-3 w-full" onclick={saveHostAddress}>
-          Save address
-        </Button>
-
-        <div class="mt-6 rounded-xl bg-black/30 p-4">
-          <Badge variant="muted">Coming Phase 2</Badge>
-          <p class="mt-2 text-sm font-medium">Join race in Content Manager</p>
-          <Button variant="primary" class="mt-3 w-full" disabled>Join live race</Button>
-        </div>
-      </Card>
+{#snippet header()}
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <p class="font-label text-[0.65rem] text-[var(--color-green)]">Driver paddock</p>
+      <h1 class="font-display text-3xl leading-none text-white lg:text-4xl">
+        GRID READY <span class="text-[var(--color-dim)]">//</span>
+        {store.state?.session?.personaname?.toUpperCase() ?? "DRIVER"}
+      </h1>
     </div>
-  </AppShell>
+  </div>
+{/snippet}
+
+{#if store.state?.session}
+  <RaceControlShell
+    mode="driver"
+    session={store.state.session}
+    activeHref="/driver"
+    {header}
+    onLogout={logout}
+  >
+    <div class="grid gap-4 lg:grid-cols-12">
+      <!-- Hero join strip — full width, racing billboard -->
+      <div
+        class="panel-timing relative overflow-hidden rounded-md lg:col-span-12"
+      >
+        <div class="pit-stripe absolute left-0 top-0 h-full w-2"></div>
+        <div
+          class="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between lg:p-6"
+        >
+          <div class="flex items-center gap-4">
+            <div
+              class="grid size-14 place-items-center rounded-md border border-[var(--color-line)] bg-[var(--color-asphalt)]"
+            >
+              <Radio class="size-7 text-[var(--color-dim)]" strokeWidth={1.5} />
+            </div>
+            <div>
+              <p class="font-label text-[0.65rem] text-[var(--color-dim)]">Live session</p>
+              <p class="font-display text-2xl text-white">NO RACE IN PROGRESS</p>
+              <p class="text-xs text-[var(--color-muted)]">
+                When your host goes live, join via Content Manager in one click.
+              </p>
+            </div>
+          </div>
+          <Button variant="green" size="lg" class="shrink-0" disabled>
+            <ExternalLink class="size-4" strokeWidth={2} />
+            Join in Content Manager
+          </Button>
+        </div>
+      </div>
+
+      <!-- Telemetry -->
+      <div class="grid grid-cols-3 gap-3 lg:col-span-12">
+        <TelemetryTile label="Pending invites" value={invites.length} accent="yellow" />
+        <TelemetryTile label="Leagues joined" value="0" accent="dim" />
+        <TelemetryTile label="Championship pts" value="—" accent="dim" />
+      </div>
+
+      <!-- Paddock passes (invites) -->
+      <div class="lg:col-span-7">
+        <TimingPanel title="Paddock passes" subtitle="Steam invite-only entry">
+          {#if invites.length > 0}
+            <ul class="space-y-3">
+              {#each invites as invite (invite.id)}
+                <li
+                  class="panel-timing flex items-center gap-4 rounded-md p-4"
+                >
+                  <div class="checkered h-12 w-10 shrink-0 rounded-sm opacity-80"></div>
+                  {#if invite.hostAvatarUrl}
+                    <Avatar
+                      src={invite.hostAvatarUrl}
+                      alt={invite.hostPersonaname ?? "Host"}
+                      size="md"
+                    />
+                  {/if}
+                  <div class="min-w-0 flex-1">
+                    <p class="font-display text-lg tracking-wide">{invite.leagueName}</p>
+                    <p class="font-mono text-xs text-[var(--color-dim)]">
+                      Chief · {invite.hostPersonaname ?? "Unknown host"}
+                    </p>
+                  </div>
+                  <div class="flex shrink-0 gap-2">
+                    <Button variant="ghost" size="sm">Pass</Button>
+                    <Button variant="primary" size="sm">Accept</Button>
+                  </div>
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <div class="flex flex-col items-center py-10 text-center">
+              <Mail class="mb-3 size-10 text-[var(--color-dim)]" strokeWidth={1.25} />
+              <p class="font-display text-xl text-[var(--color-dim)]">NO PADDOCK PASSES</p>
+              <p class="mt-2 max-w-xs text-sm text-[var(--color-muted)]">
+                Your host must invite your Steam account. Once accepted, standings and join links
+                appear here.
+              </p>
+            </div>
+          {/if}
+        </TimingPanel>
+      </div>
+
+      <!-- Garage / host link -->
+      <div class="lg:col-span-5">
+        <TimingPanel title="Pit link" subtitle="Your league host's address">
+          <p class="mb-3 text-xs text-[var(--color-muted)]">
+            Enter the public IP your race chief shared. League data syncs over the pit link port.
+          </p>
+          <Input bind:value={hostAddress} placeholder="203.0.113.42" mono />
+          <Button variant="secondary" size="sm" class="mt-3 w-full" onclick={saveHostAddress}>
+            Save pit link
+          </Button>
+
+          <div
+            class="mt-4 rounded-md border border-[color-mix(in_srgb,var(--color-green)_25%,transparent)] bg-[color-mix(in_srgb,var(--color-green)_6%,transparent)] p-3"
+          >
+            <p class="font-label text-[0.6rem] text-[var(--color-green)]">Phase 2</p>
+            <p class="mt-1 text-sm text-[var(--color-muted)]">
+              Standings sync and CM join button activate once connected to host.
+            </p>
+          </div>
+        </TimingPanel>
+      </div>
+    </div>
+  </RaceControlShell>
 {/if}

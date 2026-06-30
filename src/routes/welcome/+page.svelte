@@ -2,7 +2,7 @@
   import { goto } from "$app/navigation";
   import Logo from "$lib/components/brand/Logo.svelte";
   import Button from "$lib/components/ui/Button.svelte";
-  import Card from "$lib/components/ui/Card.svelte";
+  import { Flag, Radio, Trophy, Users } from "@lucide/svelte";
   import { getContext } from "svelte";
   import type { AppStore } from "$lib/stores/app.svelte";
 
@@ -26,72 +26,65 @@
   }
 </script>
 
-<div class="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-6 py-12">
-  <div class="mb-12 text-center">
-    <div class="mb-6 flex justify-center">
-      <Logo size="lg" />
-    </div>
-    <h1 class="font-display text-4xl font-bold tracking-tight md:text-5xl">
-      How will you <span class="text-gradient-racing">race</span>?
+<div class="mx-auto flex min-h-screen max-w-4xl flex-col justify-center px-4 py-10">
+  <div class="mb-10 text-center">
+    <Logo size="lg" showSubtitle />
+    <h1 class="font-display mt-8 text-5xl tracking-wide text-white md:text-6xl">
+      SELECT YOUR <span class="text-stroke-red">ROLE</span>
     </h1>
-    <p class="mx-auto mt-4 max-w-lg text-[var(--color-muted)]">
-      Host your own Assetto Corsa league from your PC, or join as a driver and connect through
-      Content Manager.
+    <p class="mx-auto mt-3 max-w-md text-sm text-[var(--color-muted)]">
+      Run the pit wall or join the grid. Assetto Corsa leagues through Content Manager.
     </p>
   </div>
 
-  <div class="grid gap-6 md:grid-cols-2">
+  <div class="grid gap-4 md:grid-cols-2">
+    <!-- Host — race control card -->
     <button
-      class="group text-left"
+      type="button"
+      class="group panel-timing relative overflow-hidden rounded-md text-left transition-transform hover:-translate-y-0.5 disabled:opacity-50"
       disabled={saving}
       onclick={() => choose("host")}
     >
-      <Card glow class="h-full transition-transform duration-300 group-hover:-translate-y-1">
-        <div
-          class="mb-4 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--color-racing)] to-[var(--color-amber)] text-2xl shadow-lg"
-        >
-          🏁
-        </div>
-        <h2 class="font-display text-2xl font-bold">Host a league</h2>
+      <div class="pit-stripe absolute left-0 top-0 h-full w-1.5"></div>
+      <div class="border-b border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-red)_12%,var(--color-panel))] px-5 py-3">
+        <p class="font-label text-[0.6rem] text-[var(--color-red)]">01 · Race control</p>
+      </div>
+      <div class="p-5">
+        <Radio class="mb-4 size-10 text-[var(--color-red)]" strokeWidth={1.5} />
+        <h2 class="font-display text-3xl text-white">PIT WALL CHIEF</h2>
         <p class="mt-2 text-sm leading-relaxed text-[var(--color-muted)]">
-          Configure championships, invite drivers via Steam, launch AssettoServer, and auto-score
-          results.
+          Launch AssettoServer, manage championships, invite drivers, auto-score results.
         </p>
-        <ul class="mt-4 space-y-2 text-sm text-[var(--color-muted)]">
-          <li>• Unlimited leagues</li>
-          <li>• One-click server launch</li>
-          <li>• Points & standings</li>
+        <ul class="mt-4 space-y-1.5 font-mono text-xs text-[var(--color-dim)]">
+          <li class="flex items-center gap-2"><Trophy class="size-3.5" /> Unlimited leagues</li>
+          <li class="flex items-center gap-2"><Users class="size-3.5" /> Steam invites</li>
         </ul>
-        <div class="mt-6">
-          <Button variant="primary" class="pointer-events-none w-full">Continue as host</Button>
-        </div>
-      </Card>
+        <Button variant="primary" class="pointer-events-none mt-6 w-full">Enter race control</Button>
+      </div>
     </button>
 
+    <!-- Driver — paddock card -->
     <button
-      class="group text-left"
+      type="button"
+      class="group panel-timing relative overflow-hidden rounded-md text-left transition-transform hover:-translate-y-0.5 disabled:opacity-50"
       disabled={saving}
       onclick={() => choose("driver")}
     >
-      <Card class="h-full transition-transform duration-300 group-hover:-translate-y-1">
-        <div
-          class="mb-4 flex size-14 items-center justify-center rounded-2xl bg-[var(--color-carbon-elevated)] border border-[var(--color-carbon-border)] text-2xl"
-        >
-          🏎️
-        </div>
-        <h2 class="font-display text-2xl font-bold">Join as driver</h2>
+      <div class="border-b border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-green)_8%,var(--color-panel))] px-5 py-3">
+        <p class="font-label text-[0.6rem] text-[var(--color-green)]">02 · Driver paddock</p>
+      </div>
+      <div class="p-5">
+        <Flag class="mb-4 size-10 text-[var(--color-green)]" strokeWidth={1.5} />
+        <h2 class="font-display text-3xl text-white">GRID DRIVER</h2>
         <p class="mt-2 text-sm leading-relaxed text-[var(--color-muted)]">
-          Accept league invites, track standings, and jump into race night through Content Manager.
+          Accept invites, track standings, join race night through Content Manager.
         </p>
-        <ul class="mt-4 space-y-2 text-sm text-[var(--color-muted)]">
-          <li>• Steam invite only</li>
-          <li>• Live race alerts</li>
-          <li>• CM join button</li>
+        <ul class="mt-4 space-y-1.5 font-mono text-xs text-[var(--color-dim)]">
+          <li>Invite-only leagues</li>
+          <li>One-click CM join</li>
         </ul>
-        <div class="mt-6">
-          <Button variant="secondary" class="pointer-events-none w-full">Continue as driver</Button>
-        </div>
-      </Card>
+        <Button variant="green" class="pointer-events-none mt-6 w-full">Enter paddock</Button>
+      </div>
     </button>
   </div>
 </div>

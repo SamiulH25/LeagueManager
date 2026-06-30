@@ -3,7 +3,6 @@
   import { dev } from "$app/environment";
   import Logo from "$lib/components/brand/Logo.svelte";
   import Button from "$lib/components/ui/Button.svelte";
-  import Card from "$lib/components/ui/Card.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import { getContext } from "svelte";
   import type { AppStore } from "$lib/stores/app.svelte";
@@ -55,49 +54,45 @@
   }
 </script>
 
-<div class="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-12">
-  <div class="mb-10 text-center">
-    <div class="mb-6 flex justify-center">
-      <Logo />
+<div class="flex min-h-screen items-center justify-center px-4 py-10">
+  <div class="w-full max-w-md">
+    <div class="mb-8 text-center">
+      <Logo showSubtitle />
+      <h1 class="font-display mt-6 text-4xl tracking-wide text-white">DRIVER LICENCE</h1>
+      <p class="mt-2 text-sm text-[var(--color-muted)]">
+        Steam ID required for invites, standings, and results matching.
+      </p>
     </div>
-    <h1 class="font-display text-3xl font-bold">Sign in with Steam</h1>
-    <p class="mt-2 text-sm text-[var(--color-muted)]">
-      Your Steam identity powers invites, standings, and result matching.
-    </p>
-  </div>
 
-  <Card padding="lg" class="space-y-5">
-    {#if error}
-      <div
-        class="rounded-xl border border-[color-mix(in_srgb,var(--color-racing)_40%,transparent)] bg-[color-mix(in_srgb,var(--color-racing)_10%,transparent)] px-4 py-3 text-sm text-[var(--color-racing)]"
-      >
-        {error}
-      </div>
-    {/if}
+    <div class="panel-timing overflow-hidden rounded-md">
+      <div class="checkered h-2 w-full opacity-90"></div>
+      <div class="space-y-4 p-5">
+        {#if error}
+          <div
+            class="rounded-md border border-[var(--color-red)] bg-[color-mix(in_srgb,var(--color-red)_12%,transparent)] px-3 py-2 font-mono text-xs text-[var(--color-red)]"
+          >
+            ERR: {error}
+          </div>
+        {/if}
 
-    <Button variant="steam" size="lg" class="w-full" {loading} onclick={loginSteam}>
-      <svg class="size-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path
-          d="M12 2C6.48 2 2 6.28 2 11.63c0 3.07 1.58 5.77 4 7.33V20l3.68-2.02c.98.27 2.02.42 3.1.42 5.52 0 10-4.28 10-9.63S17.52 2 12 2zm5.2 13.3c-.66 0-1.2-.53-1.2-1.2s.54-1.2 1.2-1.2 1.2.53 1.2 1.2-.54 1.2-1.2 1.2zm-3.5-4.8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"
-        />
-      </svg>
-      Sign in with Steam
-    </Button>
-
-    <p class="text-center text-xs text-[var(--color-muted)]">
-      Opens your browser for secure Steam OpenID login.
-    </p>
-
-    {#if dev}
-      <div class="border-t border-[var(--color-carbon-border)] pt-5">
-        <p class="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">
-          Dev login
-        </p>
-        <Input bind:value={devSteamId} placeholder="SteamID64" />
-        <Button variant="ghost" size="sm" class="mt-2 w-full" {loading} onclick={loginDev}>
-          Quick dev sign-in
+        <Button variant="steam" size="lg" class="w-full" {loading} onclick={loginSteam}>
+          Authenticate via Steam
         </Button>
+
+        <p class="text-center font-mono text-[0.65rem] text-[var(--color-dim)]">
+          Opens browser · OpenID 2.0
+        </p>
+
+        {#if dev}
+          <div class="border-t border-[var(--color-line)] pt-4">
+            <p class="font-label mb-2 text-[0.6rem] text-[var(--color-dim)]">Dev bypass</p>
+            <Input bind:value={devSteamId} placeholder="SteamID64" mono />
+            <Button variant="ghost" size="sm" class="mt-2 w-full" {loading} onclick={loginDev}>
+              Quick pit entry
+            </Button>
+          </div>
+        {/if}
       </div>
-    {/if}
-  </Card>
+    </div>
+  </div>
 </div>

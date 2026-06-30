@@ -1,12 +1,15 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import AppShell from "$lib/components/layout/AppShell.svelte";
-  import Badge from "$lib/components/ui/Badge.svelte";
+  import RaceControlShell from "$lib/components/layout/RaceControlShell.svelte";
+  import TimingPanel from "$lib/components/racing/TimingPanel.svelte";
+  import TimingRow from "$lib/components/racing/TimingRow.svelte";
+  import TelemetryTile from "$lib/components/racing/TelemetryTile.svelte";
+  import LaunchPanel from "$lib/components/host/LaunchPanel.svelte";
   import Button from "$lib/components/ui/Button.svelte";
-  import Card from "$lib/components/ui/Card.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import { api } from "$lib/api";
   import type { LeagueSummary } from "$lib/types";
+  import { Plus } from "@lucide/svelte";
   import { getContext, onMount } from "svelte";
   import type { AppStore } from "$lib/stores/app.svelte";
 
@@ -15,23 +18,7 @@
   let newLeagueName = $state("");
   let creating = $state(false);
 
-  const nav = [
-    { href: "/host", label: "Overview", icon: "◉" },
-    { href: "/host/leagues", label: "Leagues", icon: "▦" },
-    { href: "/host/drivers", label: "Drivers", icon: "◎" },
-    { href: "/host/settings", label: "Settings", icon: "⚙" },
-  ];
-
   onMount(async () => {
-    const s = store.state;
-    if (!s?.session) {
-      goto("/login");
-      return;
-    }
-    if (s.appMode !== "host") {
-      goto("/driver");
-      return;
-    }
     leagues = await api.listLeagues();
   });
 
@@ -53,66 +40,87 @@
   }
 </script>
 
-{#if store.state?.session}
-  <AppShell mode="host" session={store.state.session} {nav} onLogout={logout}>
-    <header class="mb-8">
-      <Badge variant="amber">Phase 0 · Host</Badge>
-      <h1 class="mt-3 font-display text-3xl font-bold tracking-tight">
-        Welcome back, {store.state.session.personaname}
+{#snippet header()}
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <p class="font-label text-[0.65rem] text-[var(--color-red)]">Race control · Host</p>
+      <h1 class="font-display text-3xl leading-none text-white lg:text-4xl">
+        PIT WALL <span class="text-[var(--color-dim)]">//</span>
+        {store.state?.session?.personaname?.toUpperCase() ?? "CHIEF"}
       </h1>
-      <p class="mt-1 text-[var(--color-muted)]">
-        Your command center for leagues, servers, and results.
-      </p>
-    </header>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="status-led status-led--idle"></span>
+      <span class="font-label text-[0.6rem] text-[var(--color-muted)]">Session control</span>
+    </div>
+  </div>
+{/snippet}
 
-    <div class="grid gap-6 lg:grid-cols-3">
-      <Card class="lg:col-span-2" padding="lg">
-        <h2 class="font-display text-xl font-semibold">Your leagues</h2>
-        <p class="mt-1 text-sm text-[var(--color-muted)]">
-          Manage unlimited championships from one install.
-        </p>
+{#if store.state?.session}
+  <RaceControlShell
+    mode="host"
+    session={store.state.session}
+    activeHref="/host"
+    {header}
+    onLogout={logout}
+  >
+    <div class="grid gap-4 xl:grid-cols-12">
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:col-span-12">
+        <TelemetryTile label="Active leagues" value={leagues.length} accent="yellow" />
+        <TelemetryTile label="Server state" value="LIVE" accent="dim" />
+        <TelemetryTile label="Drivers online" value="—" accent="dim" />
+        <TelemetryTile label="Next event" value="—" unit="min" accent="dim" />
+      </div>
 
-        <div class="mt-6 flex gap-3">
-          <Input bind:value={newLeagueName} placeholder="New league name…" class="flex-1" />
-          <Button variant="primary" loading={creating} onclick={createLeague}>Create</Button>
-        </div>
+      <div class="xl:col-span-8">
+        <TimingPanel
+          title="Championship registry"
+          subtitle="Active leagues on this pit wall"
+          variant="tower"
+        >
+          {#snippet actions()}
+            <div class="flex gap-2">
+              <Input bind:value={newLeagueName} placeholder="New championship name…" class="w-48" />
+              <Button variant="primary" size="sm" loading={creating} onclick={createLeague}>
+                <Plus class="size-3.5" strokeWidth={2.5} />
+                Register
+              </Button>
+            </div>
+          {/snippet}
 
-        <ul class="mt-6 space-y-3">
-          {#each leagues as league (league.id)}
-            <li
-              class="flex items-center justify-between rounded-xl border border-[var(--color-carbon-border)] bg-[var(--color-carbon-elevated)] px-4 py-3"
+          <div class="panel-timing overflow-hidden rounded-md border border-[var(--color-line)]">
+            <div
+              class="timing-row bg-[var(--color-asphalt)] px-3 py-2 font-label text-[0.55rem] text-[var(--color-dim)]"
             >
-              <div>
-                <p class="font-medium">{league.name}</p>
-                <p class="text-xs text-[var(--color-muted)]">
-                  {league.memberCount} member{league.memberCount === 1 ? "" : "s"}
+              <span>POS</span>
+              <span>CHAMPIONSHIP</span>
+              <span class="hidden sm:block">ENTRANTS</span>
+              <span class="hidden sm:block">STATUS</span>
+            </div>
+            {#each leagues as league, i (league.id)}
+              <TimingRow
+                position={i + 1}
+                name={league.name}
+                meta={`Registered ${new Date(league.createdAt).toLocaleDateString()}`}
+                stat={String(league.memberCount)}
+                statLabel="drivers"
+                highlight={i === 0}
+              />
+            {:else}
+              <div class="px-6 py-12 text-center">
+                <p class="font-display text-2xl text-[var(--color-dim)]">NO CHAMPIONSHIPS</p>
+                <p class="mt-2 text-sm text-[var(--color-muted)]">
+                  Register your first league above — then invite drivers via Steam.
                 </p>
               </div>
-              <Badge variant="muted">Setup</Badge>
-            </li>
-          {:else}
-            <li class="rounded-xl border border-dashed border-[var(--color-carbon-border)] p-8 text-center text-sm text-[var(--color-muted)]">
-              No leagues yet — create your first one above.
-            </li>
-          {/each}
-        </ul>
-      </Card>
+            {/each}
+          </div>
+        </TimingPanel>
+      </div>
 
-      <div class="space-y-6">
-        <Card>
-          <h3 class="font-display font-semibold">Server status</h3>
-          <p class="mt-2 text-3xl font-bold text-[var(--color-muted)]">Idle</p>
-          <p class="mt-1 text-xs text-[var(--color-muted)]">AssettoServer launch in Phase 1</p>
-        </Card>
-        <Card>
-          <h3 class="font-display font-semibold">Next up</h3>
-          <ul class="mt-3 space-y-2 text-sm text-[var(--color-muted)]">
-            <li>→ Invite drivers via Steam</li>
-            <li>→ Configure race weekend</li>
-            <li>→ Launch server & share IP</li>
-          </ul>
-        </Card>
+      <div class="xl:col-span-4">
+        <LaunchPanel />
       </div>
     </div>
-  </AppShell>
+  </RaceControlShell>
 {/if}

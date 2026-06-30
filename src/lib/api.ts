@@ -10,6 +10,8 @@ import type {
   PathSuggestions,
   PitLinkTestResult,
   RaceLaunchConfig,
+  ResultsFeed,
+  ImportResult,
   ServerStatus,
   StandingsResponse,
 } from "./types";
@@ -43,4 +45,9 @@ export const api = {
     invoke<StandingsResponse>("fetch_remote_standings", { host, port, championshipId }),
   openRemoteCmJoinLink: (host: string, port: number) =>
     invoke<string>("open_remote_cm_join_link", { host, port }),
+  getResultsFeed: () => invoke<ResultsFeed>("get_results_feed"),
+  importResultsJson: (json: string, fileName?: string) =>
+    invoke<ImportResult>("import_results_json", { json, fileName }),
+  dismissResultsWarning: (warningId: number) =>
+    invoke<void>("dismiss_results_warning", { warningId }),
 };

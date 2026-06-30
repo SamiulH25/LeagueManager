@@ -123,6 +123,40 @@ export interface LeagueApiStatus {
   port: number;
 }
 
+export interface ImportResult {
+  success: boolean;
+  sessionType: string;
+  track: string;
+  entriesImported: number;
+  pointsAwarded: number;
+  message: string;
+  warning?: string | null;
+}
+
+export interface SessionResultSummary {
+  id: number;
+  sessionType: string;
+  track: string;
+  source: string;
+  fileName?: string | null;
+  importedAt: string;
+  entryCount: number;
+}
+
+export interface ResultsWarning {
+  id: number;
+  message: string;
+  fileName?: string | null;
+  createdAt: string;
+  dismissed: boolean;
+}
+
+export interface ResultsFeed {
+  warnings: ResultsWarning[];
+  recent: SessionResultSummary[];
+  watcherActive: boolean;
+}
+
 export interface PitLinkConfig {
   host: string;
   port: number;
